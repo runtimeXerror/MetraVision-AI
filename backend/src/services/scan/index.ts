@@ -1,0 +1,19 @@
+export { runScan } from './scanService';
+export type { RunScanInput, ScanImageInput, ScanOutcome } from './scanService';
+
+export { captureCompletenessFor, toComplianceRequest } from './ComplianceInputAdapter';
+export type { AdapterInput, AdapterOutput, ScanProductContext } from './ComplianceInputAdapter';
+
+export { generateIssues, ISSUE_CLASSIFICATIONS } from './issueGenerator';
+export type { ComplianceIssue, IssueClassification, IssueSummary } from './issueGenerator';
+
+export { buildReport, renderReportHtml, REPORT_DISCLAIMER, REPORT_VERSION } from './reportGenerator';
+export type { ComplianceReport, ReportInput } from './reportGenerator';
+
+export {
+  scoreFor,
+  toLegacyChecks,
+  toLegacyFields,
+  toLegacyStatus,
+  toLegacyViolations,
+} from './legacyProjection';

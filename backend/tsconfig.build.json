@@ -1,0 +1,15 @@
+{
+  // Production build config.
+  //
+  // The base tsconfig deliberately includes `tests/` so the editor, `npm run
+  // typecheck` and ESLint all see the suite. That widens `rootDir` to the
+  // project root, which would emit `dist/src/index.js` and break the `main`
+  // entry point. The shipped build compiles `src/` alone.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests"]
+}

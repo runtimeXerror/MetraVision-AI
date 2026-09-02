@@ -1,0 +1,32 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+.expo/
+.expo-shared/
+coverage/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.env
+.env.local
+.env.*.local
+!.env.example
+backend/uploads/*
+!backend/uploads/.gitkeep
+.turbo/
+*.tsbuildinfo
+.vscode/
+.idea/
+
+# Local development database (see backend/scripts/mongo.mjs)
+.mongo-data/
+
+# Cloud service-account credentials. GOOGLE_APPLICATION_CREDENTIALS points at
+# one of these; a downloaded key landing in the repo is the classic way a
+# project leaks its OCR billing account.
+*service-account*.json
+*-credentials.json
+gcp-*.json

@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Theme tokens.
+ *
+ * Both themes define the same names, so a component never needs a `dark:`
+ * variant for colour — only for the rare case where a *shape* differs. The
+ * verdict colours are tuned separately per theme rather than reused, because a
+ * red that reads as urgent on white becomes a glare on near-black.
+ */
+
+@layer base {
+  :root {
+    /* Surfaces — a cool, paper-like stack. */
+    --canvas: 210 40% 97%;
+    --surface: 0 0% 100%;
+    --surface-raised: 0 0% 100%;
+    --surface-sunken: 210 40% 98%;
+
+    /* Text. `ink` is a very dark navy, never pure black: pure black on white
+       vibrates, and the slight blue ties the text to the rail. */
+    --ink: 222 47% 11%;
+    --ink-muted: 215 19% 42%;
+    --ink-faint: 215 16% 57%;
+    --ink-inverse: 210 40% 98%;
+
+    --line: 214 32% 91%;
+    --line-strong: 214 25% 84%;
+
+    /* One authoritative blue. Deep enough to read as institutional rather
+       than consumer, saturated enough to carry a primary action. */
+    --brand: 224 71% 45%;
+    --brand-hover: 224 71% 38%;
+    --brand-soft: 224 90% 96%;
+    --brand-ring: 224 71% 45%;
+
+    /* The navy rail is fixed across themes — it is the app's identity. */
+    --rail: 222 47% 11%;
+    --rail-raised: 221 39% 17%;
+    --rail-ink: 210 40% 96%;
+    --rail-muted: 215 20% 65%;
+    --rail-line: 217 33% 21%;
+
+    --compliant: 158 64% 36%;
+    --compliant-soft: 152 76% 94%;
+    --compliant-ink: 158 70% 24%;
+
+    --violation: 0 72% 48%;
+    --violation-soft: 0 86% 96%;
+    --violation-ink: 0 70% 35%;
+
+    --review: 32 95% 44%;
+    --review-soft: 45 93% 93%;
+    --review-ink: 26 85% 31%;
+
+    --neutral-state: 215 16% 47%;
+    --neutral-state-soft: 210 40% 94%;
+    --neutral-state-ink: 215 25% 27%;
+
+    --info: 199 89% 42%;
+    --info-soft: 204 94% 94%;
+    --info-ink: 200 90% 28%;
+
+    --shadow: 222 47% 20%;
+  }
+
+  .dark {
+    --canvas: 222 47% 7%;
+    --surface: 222 40% 10%;
+    --surface-raised: 220 36% 13%;
+    --surface-sunken: 222 45% 8%;
+
+    --ink: 210 40% 96%;
+    --ink-muted: 215 20% 68%;
+    --ink-faint: 215 16% 54%;
+    --ink-inverse: 222 47% 11%;
+
+    --line: 217 33% 19%;
+    --line-strong: 217 28% 27%;
+
+    /* Lifted and desaturated: the light-theme blue is too dense to read as a
+       foreground colour against a near-black surface. */
+    --brand: 217 91% 62%;
+    --brand-hover: 217 91% 70%;
+    --brand-soft: 222 47% 17%;
+    --brand-ring: 217 91% 62%;
+
+    --rail: 222 47% 9%;
+    --rail-raised: 221 39% 14%;
+    --rail-ink: 210 40% 96%;
+    --rail-muted: 215 20% 62%;
+    --rail-line: 217 33% 18%;
+
+    --compliant: 158 64% 48%;
+    --compliant-soft: 158 60% 14%;
+    --compliant-ink: 152 76% 76%;
+
+    --violation: 0 84% 66%;
+    --violation-soft: 0 63% 17%;
+    --violation-ink: 0 90% 85%;
+
+    --review: 38 92% 58%;
+    --review-soft: 32 81% 15%;
+    --review-ink: 45 93% 80%;
+
+    --neutral-state: 215 20% 65%;
+    --neutral-state-soft: 217 33% 17%;
+    --neutral-state-ink: 214 32% 85%;
+
+    --info: 199 89% 60%;
+    --info-soft: 200 90% 15%;
+    --info-ink: 204 94% 82%;
+
+    --shadow: 222 60% 2%;
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  html {
+    @apply antialiased;
+    /* The console is dense; a hair more room between lines makes a table of
+       twenty rows legible rather than solid. */
+    text-rendering: optimizeLegibility;
+
+    /* Native UI the stylesheet cannot reach — scrollbars, select popups, date
+       pickers, the canvas behind the app — follows `color-scheme`, not our
+       classes. Without it a workstation set to dark keeps painting a dark
+       scrollbar down the right of a light page, and vice versa. Declared
+       against the theme class so the toggle moves both together. */
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Numbers in tables must line up column-wise. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A visible, consistent focus ring everywhere — this is a keyboard-driven
+     back-office tool, and a supervisor tabbing through a review queue needs to
+     know where they are. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-ring ring-offset-2 ring-offset-canvas;
+  }
+
+  ::selection {
+    @apply bg-brand/20;
+  }
+}
+
+@layer components {
+  /* Scrollbars: present, but not competing with the content. */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--line-strong)) transparent;
+  }
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-line-strong;
+  }
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* The loading shimmer used by every skeleton. */
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-line/70;
+  }
+  .skeleton::after {
+    @apply absolute inset-0 animate-shimmer;
+    content: '';
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--surface) / 0.6),
+      transparent
+    );
+    transform: translateX(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

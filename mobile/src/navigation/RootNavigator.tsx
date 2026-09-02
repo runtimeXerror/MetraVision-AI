@@ -1,0 +1,141 @@
+import { NavigationContainer, type Theme } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
+
+import { colors } from '../constants/theme';
+import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
+import { LoginScreen } from '../screens/auth/LoginScreen';
+import { InspectionDetailScreen } from '../screens/InspectionDetailScreen';
+import { ReportDetailScreen } from '../screens/ReportDetailScreen';
+import { ReportEditScreen } from '../screens/ReportEditScreen';
+import { AnalysisScreen } from '../screens/inspection/AnalysisScreen';
+import { CaptureScreen } from '../screens/inspection/CaptureScreen';
+import { FinalizeScreen } from '../screens/inspection/FinalizeScreen';
+import { QualityScreen } from '../screens/inspection/QualityScreen';
+import { ResultScreen } from '../screens/inspection/ResultScreen';
+import { ReviewScreen } from '../screens/inspection/ReviewScreen';
+import { SuccessScreen } from '../screens/inspection/SuccessScreen';
+import { useAuthStore } from '../store/authStore';
+import { useDraftStore, startDraftAutosave } from '../store/draftStore';
+import { useHistoryStore } from '../store/historyStore';
+
+import { TabNavigator } from './TabNavigator';
+import type { AuthStackParamList, RootStackParamList } from './types';
+
+const RootStack = createNativeStackNavigator<RootStackParamList>();
+const AuthStack = createNativeStackNavigator<AuthStackParamList>();
+
+/** Navigation theme, so the background behind a transition matches the app. */
+const navigationTheme: Theme = {
+  dark: false,
+  colors: {
+    primary: colors.navy,
+    background: colors.background,
+    card: colors.surface,
+    text: colors.text,
+    border: colors.border,
+    notification: colors.danger,
+  },
+  fonts: {
+    regular: { fontFamily: 'System', fontWeight: '400' },
+    medium: { fontFamily: 'System', fontWeight: '500' },
+    bold: { fontFamily: 'System', fontWeight: '700' },
+    heavy: { fontFamily: 'System', fontWeight: '800' },
+  },
+};
+
+function AuthNavigator() {
+  return (
+    <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+      <AuthStack.Screen name="Login" component={LoginScreen} />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+    </AuthStack.Navigator>
+  );
+}
+
+function SignedInNavigator() {
+  return (
+    <RootStack.Navigator screenOptions={{ headerShown: false }}>
+      <RootStack.Screen name="Tabs" component={TabNavigator} />
+
+      {/* Capture flow — full screen, no tab bar. */}
+      <RootStack.Screen name="Capture" component={CaptureScreen} />
+      <RootStack.Screen name="Quality" component={QualityScreen} />
+      <RootStack.Screen
+        name="Analysis"
+        component={AnalysisScreen}
+        // Swiping back out of a running analysis would strand the draft.
+        options={{ gestureEnabled: false }}
+      />
+      <RootStack.Screen name="Result" component={ResultScreen} />
+      <RootStack.Screen name="Review" component={ReviewScreen} />
+      <RootStack.Screen name="Finalize" component={FinalizeScreen} />
+      <RootStack.Screen
+        name="Success"
+        component={SuccessScreen}
+        options={{ gestureEnabled: false }}
+      />
+
+      <RootStack.Screen name="InspectionDetail" component={InspectionDetailScreen} />
+      <RootStack.Screen name="ReportDetail" component={ReportDetailScreen} />
+      <RootStack.Screen name="ReportEdit" component={ReportEditScreen} />
+    </RootStack.Navigator>
+  );
+}
+
+/** Full-bleed splash shown only while the stored session is being read. */
+function RestoringSplash() {
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.navy, alignItems: 'center', justifyContent: 'center' }}>
+      <ActivityIndicator color={colors.textInverse} size="large" />
+    </View>
+  );
+}
+
+export function RootNavigator() {
+  const restoring = useAuthStore((state) => state.restoring);
+  const session = useAuthStore((state) => state.session);
+  const inspector = useAuthStore((state) => state.inspector);
+  const restore = useAuthStore((state) => state.restore);
+
+  const refreshHistory = useHistoryStore((state) => state.refreshAll);
+  const resetHistory = useHistoryStore((state) => state.reset);
+
+  const checkDraft = useDraftStore((state) => state.check);
+  const resetDraft = useDraftStore((state) => state.reset);
+
+  useEffect(() => {
+    void restore();
+  }, [restore]);
+
+  // Load the inspector's records once they are signed in; clear them on
+  // sign-out so a second inspector never sees the first one's history.
+  useEffect(() => {
+    if (inspector) void refreshHistory();
+    else resetHistory();
+  }, [inspector, refreshHistory, resetHistory]);
+
+  /**
+   * Look for an unfinished capture, and start recording one.
+   *
+   * Both are keyed to the signed-in officer. The autosave subscription is torn
+   * down on sign-out, or it would go on writing the next officer's typing under
+   * the previous one's id — and the draft check would then offer it to them.
+   */
+  useEffect(() => {
+    if (!inspector) {
+      resetDraft();
+      return;
+    }
+
+    void checkDraft(inspector.id);
+    return startDraftAutosave(inspector.id);
+  }, [inspector, checkDraft, resetDraft]);
+
+  return (
+    <NavigationContainer theme={navigationTheme}>
+      {restoring ? <RestoringSplash /> : session ? <SignedInNavigator /> : <AuthNavigator />}
+    </NavigationContainer>
+  );
+}
