@@ -55,15 +55,39 @@ of unknown reliability as a question for a person rather than as a finding.
 ### 1. Choose a provider
 
 ```bash
-OCR_PROVIDER=mock     # deterministic fixtures. No credentials, no network.
+OCR_PROVIDER=paddle   # PaddleOCR in the local ocr-service/ sidecar. The default.
 OCR_PROVIDER=google   # Google Cloud Vision DOCUMENT_TEXT_DETECTION.
+OCR_PROVIDER=mock     # deterministic fixtures. No dependencies, no network.
 ```
 
-`mock` is the default and is what CI runs on. Everything below the OCR seam —
-extraction, the rule engine, issue generation, the report — is fully exercised
-without an API key.
+`paddle` is the default. It needs the sidecar running, which `npm run dev` at
+the repository root handles — it starts the sidecar and the API together and
+waits for the model before accepting requests:
 
-### 2. Credentials, for `google`
+```bash
+npm run setup:ocr   # once per machine
+npm run dev         # sidecar + API
+```
+
+[`ocr-service/README.md`](../ocr-service/README.md) covers running it alone.
+
+`mock` is what CI runs on. Everything below the OCR seam — extraction, the rule
+engine, issue generation, the report — is fully exercised without a model, a
+credential or a network.
+
+### 2. The sidecar, for `paddle`
+
+```bash
+OCR_SERVICE_URL=http://localhost:8001
+```
+
+No credential — that is most of the point. Keep it on localhost: the service
+holds inspection photographs in memory and has no authentication of its own.
+
+`GET /api/inspections/scan/status` reports `ocrServiceReachable`, and names the
+command to start the sidecar when it is not.
+
+### 3. Credentials, for `google`
 
 Supply **one** of the two:
 
@@ -85,7 +109,7 @@ there. `*service-account*.json` and `.env` are gitignored; if a credential is
 missing the API answers `OCR_NOT_CONFIGURED` with a setup message rather than
 failing as though the service were down.
 
-### 3. Everything else
+### 4. Everything else
 
 ```bash
 OCR_TIMEOUT_MS=20000
@@ -95,49 +119,68 @@ MOCK_OCR_DELAY_MS=600          # visible processing time for a demo; 0 in tests
 CAPTURE_COMPLETENESS_BY_IMAGE_COUNT=0.45,0.7,0.85,0.95
 ```
 
-Full list with commentary: `backend/.env.example`.
+Full list with commentary: `backend/.env.example`. Options belonging to the
+model itself — language, second script, which weights — live in
+[`ocr-service/README.md`](../ocr-service/README.md), because the backend does
+not know they exist.
 
 ---
 
-## Why Google Cloud Vision
+## Why PaddleOCR
 
 Written down so a later phase can re-open the decision rather than inherit it.
 
-- **Printed packaging text is what `DOCUMENT_TEXT_DETECTION` is tuned for** —
-  dense, small, multi-column label copy photographed at an angle, which is where
-  plain text detection and most off-the-shelf models fall apart.
-- **Indic scripts.** Vision auto-detects and reads Devanagari, Tamil, Telugu,
-  Bengali and Latin in one pass, so a Hindi "अधिकतम खुदरा मूल्य" beside an
-  English "MRP" both reach the extractor.
-- **Per-word confidence and bounding polygons.** Both are load-bearing: the rule
-  engine's decision policy consumes confidence, and the inspector's evidence
-  panel consumes the boxes. A provider returning only a string would force us to
-  invent the first and do without the second.
-- **Plain REST with an API key.** No SDK, no native binary, no gRPC.
-- **~1–2 s for a 2 MP label**, first 1,000 units a month free.
+- **No per-scan cost and no quota.** A field pilot photographing a few thousand
+  packages costs nothing, and a demo cannot be rate-limited into silence at the
+  wrong moment.
+- **The photographs stay on the machine.** An inspection image is evidence
+  about a named trader. Not sending it to a third party is worth having on its
+  own, and it is what makes an air-gapped deployment possible at all.
+- **It works offline.** An inspector in a market with no signal can still
+  complete a scan — the difference between a tool used in the field and one
+  used at a desk afterwards.
+- **Boxes and confidences on every line.** Both are load-bearing: the rule
+  engine's decision policy consumes confidence, and the evidence panel consumes
+  the boxes. A provider returning only a string would force us to invent the
+  first and do without the second.
+- **~2s for a 2 MP label on a CPU**, with no GPU required.
 
-What it is not is permanent. It is a network dependency with a per-unit price
-that sends label photographs to a third party. That is exactly why it sits
-behind an interface.
+What it costs is a second process that has to be running, and about a gigabyte
+of RAM held for the weights. On very curved or foil packaging a large
+vision-language model still reads more of the label. That is the trade: slightly
+lower recall on hard surfaces, in exchange for geometry, confidence, zero
+marginal cost and no third party.
+
+### Google Cloud Vision, still available
+
+`OCR_PROVIDER=google` is kept as the cloud comparison and as a fallback where
+the sidecar cannot be deployed. It also returns per-word confidence and bounding
+polygons, and reads Devanagari, Tamil, Telugu and Bengali in one pass without a
+second engine. It costs per scan and sends label photographs to a third party,
+which is why it is no longer the default.
+
+Because the provider is a parameter, the two can be compared on the same
+photographs — see *Benchmarking two engines* below.
 
 ---
 
 ## Replacing the OCR engine
 
-The point of the whole arrangement. To swap in a benchmarked local model:
+The point of the whole arrangement — and no longer hypothetical. Adding
+PaddleOCR was exactly this, and it touched three files:
 
 **1. Write a provider.** One file in `backend/src/services/ocr/`:
 
 ```ts
-export class LocalModelOCRProvider implements OCRProvider {
-  readonly name = 'local-model';
-  readonly version = 'paddleocr-finetuned/2026-05';
+export class PaddleOCRProvider implements OCRProvider {
+  readonly name = 'paddleocr';
+  get version(): string { /* learned from the sidecar's /health */ }
 
-  isConfigured(): boolean { return Boolean(env.OCR_ENDPOINT); }
-  configurationHint(): string | null { /* what is missing, in one line */ }
+  isConfigured(): boolean { return true; }        // no credential to forget
+  configurationHint(): string | null { return null; }
 
   async extractText(image: OCRImageInput): Promise<OCRResult> {
-    // POST the bytes to the model service, map its response onto OCRResult.
+    // POST the bytes to the sidecar, map its response onto OCRResult.
   }
 }
 ```
@@ -145,9 +188,9 @@ export class LocalModelOCRProvider implements OCRProvider {
 **2. Register it.** One `case` in `backend/src/services/ocr/index.ts`, one value
 in the `OCR_PROVIDER` enum in `config/env.ts`.
 
-**3. Set `OCR_PROVIDER=local-model`.**
+**3. Set `OCR_PROVIDER=paddle`.**
 
-That is the entire change. No controller, model, screen, adapter or test outside
+That was the entire change. No controller, model, screen, adapter or test outside
 `services/ocr/` is touched, because nothing outside it imports a provider —
 they all depend on the `OCRProvider` interface.
 

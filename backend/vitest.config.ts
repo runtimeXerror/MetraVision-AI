@@ -8,19 +8,26 @@ export default defineConfig({
      *
      * `dotenv` does not override variables already present in `process.env`, so
      * setting them here wins. Without it the tests inherited whatever OCR
-     * provider the machine happened to be configured for: setting
-     * `OCR_PROVIDER=gemini` to try a real key turned twenty passing tests red,
+     * provider the machine happened to be configured for: switching
+     * `OCR_PROVIDER` to a live provider turned twenty passing tests red,
      * because pinning a mock fixture is refused when a live provider is
      * configured — correctly, but the suite is not the place to discover it.
      *
-     * A test run must never reach a paid API or depend on a credential, and it
-     * must give the same answer on a laptop and in CI.
+     * A test run must never reach a paid API, depend on a credential, or need
+     * the PaddleOCR sidecar to be running, and it must give the same answer on
+     * a laptop and in CI. `PaddleOCRProvider` is covered in
+     * `tests/ocr.paddle.test.ts` against a stubbed `fetch`; the engine itself
+     * is covered by the Python suite in `ocr-service/tests/`.
      */
     env: {
       NODE_ENV: 'test',
       OCR_PROVIDER: 'mock',
       OCR_API_KEY: '',
       GOOGLE_APPLICATION_CREDENTIALS: '',
+      // Unroutable on purpose: if a test ever does construct the Paddle
+      // provider for real, it must fail fast rather than quietly reach a
+      // sidecar the developer happens to have running.
+      OCR_SERVICE_URL: 'http://127.0.0.1:9',
       MOCK_OCR_DELAY_MS: '0',
     },
     globals: false,

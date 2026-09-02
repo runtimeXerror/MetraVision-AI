@@ -81,6 +81,8 @@ stable machine-readable value a client branches on. Validation failures add a
 | `ANALYSIS_FAILED` | 503 | The analysis engine could not produce a result |
 | `SCAN_FAILED` | 4xx/5xx | The scan pipeline stopped. `details.cause` names the stage; `details.retryable` says whether retrying is worth it |
 | `OCR_NOT_CONFIGURED` | 503 | `OCR_PROVIDER=google` with no credentials configured (setup, not an outage) |
+| `OCR_SERVICE_DOWN` | 503 | `OCR_PROVIDER=paddle` and nothing is listening at `OCR_SERVICE_URL` — start the `ocr-service/` sidecar |
+| `NO_TEXT_DETECTED` | 422 | The read succeeded and found no text. **Not** a finding that declarations are missing |
 | `OCR_AUTH_FAILED` | 503 | The OCR service rejected the configured credentials |
 | `OCR_QUOTA_EXCEEDED` | 503 | The OCR service quota is exhausted |
 | `OCR_TIMEOUT` | 504 | The OCR service did not answer within `OCR_TIMEOUT_MS` |

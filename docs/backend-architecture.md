@@ -138,15 +138,17 @@ interface OCRProvider {
 ```
 
 Nothing downstream imports a provider — extraction, the adapter, the engine and
-both clients depend on `OCRResult` alone. Adding the benchmarked local model is
-one class in `services/ocr/` and one `case` in its `index.ts`.
+both clients depend on `OCRResult` alone. Adding an engine is one class in
+`services/ocr/` and one `case` in its `index.ts`.
 
-This is the seam most likely to move. The MVP provider is Google Cloud Vision
-(`DOCUMENT_TEXT_DETECTION`), chosen for printed packaging text, Indic script
-support, per-word confidence and bounding polygons, and a plain REST call with
-no SDK. It is also a network dependency with a per-unit price that sends label
-photographs to a third party, which is exactly why it sits behind an interface.
-The reasoning is written out in [`ML_OCR/README.md`](../ML_OCR/README.md).
+This is the seam most likely to move, and it already has: the default provider
+is now **PaddleOCR** (PP-OCRv5 pretrained), self-hosted in the `ocr-service/`
+Python sidecar. It returns a bounding box and a confidence for every line, costs
+nothing per scan, and keeps inspection photographs on the machine — at the price
+of a second process and about a gigabyte of RAM. Google Cloud Vision remains
+available as the cloud alternative. The reasoning for both is written out in
+[`ML_OCR/README.md`](../ML_OCR/README.md); the sidecar's own contract is in
+[`ocr-service/README.md`](../ocr-service/README.md).
 
 ### Three things the pipeline refuses to do
 
@@ -368,7 +370,7 @@ The seams that already exist, and what fills them:
 
 | Seam | Today | Next |
 | --- | --- | --- |
-| `services/ocr/` | Google Cloud Vision, or deterministic fixtures | A benchmarked local model: one class, one `case`, one env var |
+| `services/ocr/` | PaddleOCR in a local sidecar, Google Cloud Vision, or deterministic fixtures | Benchmark the two engines on real field photographs |
 | `services/extraction/` | Regex and label patterns | Better patterns, or a layout model behind the same `ExtractionResult` |
 | `compliance/` | The full versioned rule engine | Physical measurements, unblocking rules 7(2) and 7(3) |
 | `analysisService.ts` | Scripted scenarios, for `POST /:id/analyze` | Superseded by the scan pipeline |

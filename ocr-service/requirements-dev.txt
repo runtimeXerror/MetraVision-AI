@@ -1,0 +1,11 @@
+# Test-only dependencies for the OCR sidecar.
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   pytest                 # fast: formatter + preprocessing, no model
+#   pytest -m slow         # loads the weights and reads real images
+#
+# httpx is what FastAPI's TestClient runs on; it arrives with paddlex anyway,
+# and is pinned here because the tests import it directly.
+
+pytest==8.3.4
+httpx==0.28.1

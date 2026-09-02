@@ -1,0 +1,49 @@
+# ── OCR sidecar dependencies ────────────────────────────────────────────────
+#
+# Pinned to the stable PaddleOCR 3.x line. 3.x is a different API from the 2.x
+# tutorials that dominate search results: `PaddleOCR.predict()` replaced
+# `.ocr(cls=...)`, and the result is a dict of parallel arrays rather than a
+# nested list. Code written against 2.x will not run here.
+#
+# CPU wheels on purpose. GPU is picked up automatically when a CUDA build of
+# paddlepaddle is installed instead, and nothing in this service assumes one —
+# an SIH demo laptop has no GPU.
+
+paddleocr==3.7.0
+
+# ── Why paddlepaddle is pinned BELOW the latest release ─────────────────────
+#
+# 3.3.1 crashes on every OCR model this service uses as soon as its oneDNN CPU
+# backend is active:
+#
+#     NotImplementedError: (Unimplemented) ConvertPirAttribute2RuntimeAttribute
+#     not support [pir::ArrayAttribute<pir::DoubleAttribute>]
+#     (at paddle/fluid/framework/new_executor/instruction/onednn/...)
+#
+# The only way to run 3.3.1 is with oneDNN disabled, and that costs a factor of
+# twenty: 42s per label instead of 2s, which is past the backend's OCR timeout
+# before a second image is even read. 3.1.1 runs the same paddleocr 3.7.0
+# models with oneDNN on and no crash.
+#
+# Re-test on each paddlepaddle release; when the bug is fixed upstream, raise
+# this pin. The check is one command:
+#     python -c "from paddleocr import PaddleOCR; import cv2; \
+#       print(PaddleOCR(lang='en').predict(cv2.imread('label.jpg')))"
+paddlepaddle==3.1.1
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# Pillow decodes and normalises the upload; OpenCV is what PaddleOCR itself
+# consumes. Both are already transitive dependencies of paddleocr — pinned here
+# because this service imports them directly.
+pillow==11.1.0
+opencv-python-headless==4.10.0.84
+numpy==2.2.1
+
+# HEIC/HEIF decoding. An iPhone camera produces HEIC by default and the
+# backend's magic-byte check accepts it, so without this an inspector on an
+# iPhone is told to retake a photograph that was fine. Pillow has no HEIC
+# support of its own.
+pillow-heif==1.6.0

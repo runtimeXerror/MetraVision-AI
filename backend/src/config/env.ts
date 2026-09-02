@@ -57,38 +57,39 @@ const schema = z.object({
 
   /**
    * ── OCR SWITCH ──────────────────────────────────────────────────────────
-   * `gemini` → Gemini Flash reading the label as a vision-language model.
-   *            Best recall on curved, angled and bilingual packaging, but
-   *            returns no bounding boxes and no confidence — see the header of
-   *            `GeminiOCRProvider` for what that costs downstream.
-   * `google` → Google Cloud Vision DOCUMENT_TEXT_DETECTION. Per-word
-   *            confidence and bounding polygons, so a finding can be shown on
-   *            the photograph.
+   * `paddle` → PP-OCRv5 running locally in the `ocr-service/` sidecar. Boxes
+   *            and per-line confidence, no per-scan cost, no network, and the
+   *            photographs never leave the machine. The default, and what the
+   *            system is built around — see `PaddleOCRProvider`.
+   * `google` → Google Cloud Vision DOCUMENT_TEXT_DETECTION. Also returns
+   *            confidence and polygons; kept as the cloud comparison and as a
+   *            fallback where the sidecar cannot be deployed.
    * `mock`   → deterministic fixtures. Reads nothing; the CI and
-   *            no-credentials default.
+   *            no-dependencies default.
    *
-   * A future self-hosted model is one more value and one class beside
+   * Another engine is one more value here and one class beside
    * `services/ocr/`. Nothing downstream of `OCRProvider` changes.
    * ────────────────────────────────────────────────────────────────────────
    */
-  OCR_PROVIDER: z.enum(['mock', 'google', 'gemini']).default('mock'),
+  OCR_PROVIDER: z.enum(['mock', 'paddle', 'google']).default('paddle'),
 
   /**
-   * The Gemini model used when OCR_PROVIDER=gemini.
+   * Where the PaddleOCR sidecar is listening, when OCR_PROVIDER=paddle.
    *
-   * Flash rather than Pro: transcription is not a reasoning task, and Flash is
-   * several times cheaper and faster for the same job on printed packaging.
+   * Localhost by default because the service holds inspection photographs in
+   * memory and has no authentication of its own — it is meant to sit behind
+   * the backend on the same host, not to be exposed. Pointing this at another
+   * machine means putting a network boundary in front of the evidence, and
+   * that boundary has to be secured separately.
    */
-  GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
+  OCR_SERVICE_URL: z.string().default('http://localhost:8001'),
 
   /**
-   * The API key for the selected cloud provider.
+   * The API key for the cloud provider, when OCR_PROVIDER=google.
    *
-   * `google`  — a Vision-enabled Google Cloud API key. Either this or
-   *             GOOGLE_APPLICATION_CREDENTIALS is required; the key wins when
-   *             both are set.
-   * `gemini`  — a Google AI Studio key (https://aistudio.google.com/apikey).
-   *             Required; there is no service-account path.
+   * A Vision-enabled Google Cloud API key. Either this or
+   * GOOGLE_APPLICATION_CREDENTIALS is required; the key wins when both are
+   * set. Not needed at all by the default `paddle` provider.
    *
    * NEVER commit a value. NEVER ship one to the mobile or web client — every
    * OCR call is made from this process precisely so the credential stays here.
@@ -97,8 +98,16 @@ const schema = z.object({
   /** Absolute path to a service-account JSON file, as the alternative to a key. */
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
 
+  /**
+   * Per-image OCR budget.
+   *
+   * 20s is generous for a warm sidecar (a 2 MP label reads in 1–3s on a CPU)
+   * and deliberately so: the *first* request after start pays the model load
+   * as well, and an inspector should not see a timeout because they were the
+   * first to scan that morning.
+   */
   OCR_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
-  /** Comma-separated BCP-47 hints, e.g. `en,hi`. Empty lets Vision auto-detect. */
+  /** Comma-separated BCP-47 hints, e.g. `en,hi`. Used by the Vision provider. */
   OCR_LANGUAGE_HINTS: z.string().default('en,hi'),
   /** Pins the mock provider to one fixture. Empty rotates by image content. */
   OCR_MOCK_FIXTURE: z.string().default(''),

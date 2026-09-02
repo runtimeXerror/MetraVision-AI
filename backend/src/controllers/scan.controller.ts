@@ -1,10 +1,17 @@
 import type { Request, Response } from 'express';
 
+import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { assertRealImage } from '../middleware/upload';
 import { Inspection, type InspectionDocument } from '../models/Inspection';
 import { extractionService } from '../services/extraction';
-import { ocrProvider, mockProviderFor, type MockFixtureId, MOCK_FIXTURE_IDS } from '../services/ocr';
+import {
+  ocrProvider,
+  mockProviderFor,
+  PaddleOCRProvider,
+  type MockFixtureId,
+  MOCK_FIXTURE_IDS,
+} from '../services/ocr';
 import {
   runScan,
   type ScanOutcome,
@@ -604,11 +611,30 @@ export async function getReport(req: Request, res: Response): Promise<Response |
 export async function getScanStatus(_req: Request, res: Response): Promise<Response> {
   const hint = ocrProvider.configurationHint();
 
+  /**
+   * For a local engine, "configured" is not the interesting question.
+   *
+   * A cloud provider is unusable when its key is missing, which
+   * `isConfigured()` reports. PaddleOCR has no key — it is unusable when the
+   * sidecar process is not running, which no synchronous check can see. So a
+   * provider that can probe itself is asked to, and the answer is reported as
+   * a separate field: `ocrConfigured` keeps its existing meaning, and a client
+   * that has never heard of the sidecar is unaffected.
+   */
+  const reachable =
+    ocrProvider instanceof PaddleOCRProvider ? await ocrProvider.isReady() : undefined;
+
   return ok(res, {
     ocrProvider: ocrProvider.name,
     ocrProviderVersion: ocrProvider.version,
     ocrConfigured: ocrProvider.isConfigured(),
+    ...(reachable === undefined ? {} : { ocrServiceReachable: reachable }),
     ...(hint ? { setupRequired: hint } : {}),
+    ...(reachable === false
+      ? {
+          setupRequired: `The OCR service at ${env.OCR_SERVICE_URL} is not responding. Start it: cd ocr-service && .venv/Scripts/python -m uvicorn app:app --port 8001`,
+        }
+      : {}),
     extractionEngine: extractionService.engine,
     extractionEngineVersion: extractionService.engineVersion,
     availableMockFixtures: ocrProvider.name === 'mock' ? MOCK_FIXTURE_IDS : [],

@@ -1,23 +1,23 @@
 import { env } from '../../config/env';
 
-import { GeminiOCRProvider } from './GeminiOCRProvider';
 import { GoogleVisionOCRProvider } from './GoogleVisionOCRProvider';
 import { MockOCRProvider, type MockFixtureId } from './MockOCRProvider';
 import type { OCRProvider } from './OCRProvider';
+import { PaddleOCRProvider } from './PaddleOCRProvider';
 
 /**
  * Provider resolution.
  *
- * Adding the benchmarked model later is one `case` here and one class beside
- * this file. Nothing else in the codebase learns about it — see the note at the
- * top of `OCRProvider.ts`.
+ * Adding another engine is one `case` here and one class beside this file.
+ * Nothing else in the codebase learns about it — see the note at the top of
+ * `OCRProvider.ts`.
  */
 function createProvider(): OCRProvider {
   switch (env.OCR_PROVIDER) {
+    case 'paddle':
+      return new PaddleOCRProvider();
     case 'google':
       return new GoogleVisionOCRProvider();
-    case 'gemini':
-      return new GeminiOCRProvider();
     case 'mock':
     default:
       return new MockOCRProvider();
@@ -31,8 +31,8 @@ export function mockProviderFor(fixture: MockFixtureId): OCRProvider {
   return new MockOCRProvider(fixture);
 }
 
-export { GeminiOCRProvider } from './GeminiOCRProvider';
 export { GoogleVisionOCRProvider } from './GoogleVisionOCRProvider';
+export { PaddleOCRProvider, resetPaddleVersionCache } from './PaddleOCRProvider';
 export { MockOCRProvider, FailingOCRProvider, mockFixtures, MOCK_FIXTURE_IDS } from './MockOCRProvider';
 export type { MockFixtureId } from './MockOCRProvider';
 export { aggregate } from './OCRProvider';
