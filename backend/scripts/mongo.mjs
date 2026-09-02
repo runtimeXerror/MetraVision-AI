@@ -62,10 +62,15 @@ console.log(`mongod   ${mongod}`);
 console.log(`data     ${DATA_DIR}`);
 console.log(`listening on mongodb://127.0.0.1:${PORT}`);
 console.log('');
-console.log('Leave this running, and start the API in another terminal with `npm run dev`.');
+// `npm run dev` at the repository root starts this script itself, so the
+// message has to make sense both there and when it is run on its own.
+console.log('Leave this running. The API connects to it with MONGODB_URI.');
 console.log('');
 
-const child = spawn(mongod, ['--dbpath', DATA_DIR, '--port', String(PORT)], {
+// `--quiet` because this now shares a terminal with the API and the OCR
+// service: mongod's default output is a JSON document per line and it drowns
+// everything else. Warnings and errors still come through.
+const child = spawn(mongod, ['--dbpath', DATA_DIR, '--port', String(PORT), '--quiet'], {
   stdio: 'inherit',
 });
 

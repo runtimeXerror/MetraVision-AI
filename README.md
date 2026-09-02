@@ -11,38 +11,48 @@ category, and produces an enforcement record.
 
 ## Quick start — run it
 
-Four terminals. Database and backend first; both clients need them.
+Three terminals. The database, OCR service and API start together.
 
 ```bash
-# 1 · Database  →  mongodb://127.0.0.1:27017  (leave this running)
-cd D:\Projects\SIH26034\backend
-npm run db
-```
-
-```bash
-# 2 · Backend  →  http://localhost:4000/api
-cd D:\Projects\SIH26034\backend
+# 1 · Database + OCR service + Backend  →  http://localhost:4000/api
+cd D:\Projects\SIH26034
 npm run dev
 ```
 
+One command for all three, in that order, each waited for before the next
+starts. They are one system: the API cannot read an image without the OCR
+sidecar, and starting either without the database only surfaces as a confusing
+failure at the first request. Output is tagged `[db]`, `[ocr]` and `[api]`, and
+Ctrl-C stops everything.
+
+The database is started as a separate process on purpose. The API can run its
+own in-process MongoDB, but `mongodb-memory-server` kills that server when the
+node process exits — and `tsx watch` exits on every file change, so editing any
+file left the API answering `INTERNAL_ERROR` until it was restarted by hand. A
+mongod that outlives the API means a reload reconnects to a database that never
+went away, and sessions already open in a browser survive it.
+
+**First time on a machine**, build the OCR environment once with
+`npm run setup:ocr`. The pretrained weights download on the first scan and are
+cached outside the repository, so every run after that is offline.
+`npm run dev:api` and `npm run dev:ocr` run either half alone when debugging.
+
 ```bash
-# 3 · Web console  →  http://localhost:5173
+# 2 · Web console  →  http://localhost:5173
 cd D:\Projects\SIH26034\web
 npm run dev
 ```
 
 ```bash
-# 4 · Mobile app  →  press a / i, or scan the QR in Expo Go
+# 3 · Mobile app  →  press a / i, or scan the QR in Expo Go
 cd D:\Projects\SIH26034\mobile
 npm start
 ```
 
-Dependencies are already installed and `backend/.env` is in place. `npm run db`
-runs MongoDB from the binary already on this machine — nothing to install — and
-keeps its data in `backend/.mongo-data`, so restarting the API no longer resets
-the database or signs you out. Leave `MONGODB_URI` empty instead and the backend
-still starts a database of its own, but every restart replaces it; see
-`backend/README.md` for why that gets painful once you are editing code.
+Dependencies are already installed and `backend/.env` is in place. The database
+runs from the mongod binary already on this machine — nothing to install — and
+keeps its data in `backend/.mongo-data`, so a restart no longer resets it or
+signs you out.
 
 Sign in with `LM-INS-4471` / `Inspector@123` (inspector) or `meera.nair@legalmetrology.gov.in` / `Supervisor@123`
 (supervisor) — both sign-in screens fill these in on a tap.
@@ -91,7 +101,7 @@ React Native (Expo)          React (Vite)
      MongoDB    OCRProvider    rule engine
                      │        (pure, versioned,
                      ↓         no model, no LLM)
-        Google Cloud Vision  ·or·  fixtures  ·or·  a future local model
+     PaddleOCR (local)  ·or·  Google Vision  ·or·  fixtures
 ```
 
 The web console never connects to MongoDB. Both clients go through the same
@@ -253,10 +263,11 @@ whatever the resolved rule set contains, and neither assumes MRP and net
 quantity are the complete list.
 
 **Three seams, one line of configuration each.** `OCRProvider`,
-`AnalysisProvider` and `StorageProvider` are interfaces. Swapping the cloud OCR
-API for a locally hosted model is `OCR_PROVIDER=…` plus one class in
-`backend/src/services/ocr/`; moving off local disk is one `StorageProvider`
-implementation. No controller, screen or type changes for any of them — which is
+`AnalysisProvider` and `StorageProvider` are interfaces. Swapping the OCR engine
+is `OCR_PROVIDER=…` plus one class in `backend/src/services/ocr/` — which is
+exactly how the self-hosted PaddleOCR provider was added, without touching a
+controller, a screen or the rule engine; moving off local disk is one
+`StorageProvider` implementation. No controller, screen or type changes for any of them — which is
 the whole reason they are seams rather than inline implementations.
 
 **One service seam on the client.** No screen, store or component performs I/O
@@ -360,11 +371,9 @@ Pino · Multer · Vitest + Supertest
 React Router 6 · TanStack Query 5 · Recharts 2 · Axios · Zustand 5 ·
 lucide-react
 
-**OCR** — Google Cloud Vision (`DOCUMENT_TEXT_DETECTION`), behind
-`OCRProvider`, with deterministic fixtures for CI
-
-**Next phase (planned)** — a benchmarked OCR model, self-hosted, behind the same
-interface
+**OCR** — PaddleOCR 3.7 (PP-OCRv5, pretrained) self-hosted in a Python
+sidecar, behind `OCRProvider`; Google Cloud Vision as the cloud alternative and
+deterministic fixtures for CI
 
 ---
 
@@ -372,11 +381,13 @@ interface
 
 Nothing on this list is a change to either client.
 
-1. **Benchmark and self-host an OCR model.** Write one `OCRProvider`, register
-   it, set `OCR_PROVIDER`. Because the provider is a parameter, the same
-   photographs can be re-scanned through `POST /inspections/:id/scan` and the
-   two verdicts compared directly — every evaluation is kept, each carrying the
-   OCR provider and rule-set checksum it was produced under.
+1. **Benchmark the OCR engines on real photographs.** Self-hosting is done —
+   PaddleOCR is the default provider. What is left is judging it against Google
+   Vision on genuine field images rather than rendered labels. Because the
+   provider is a parameter, the same photographs can be re-scanned through
+   `POST /inspections/:id/scan` and the two verdicts compared directly — every
+   evaluation is kept, each carrying the OCR provider and rule-set checksum it
+   was produced under.
 2. **Take the measurements.** Character height and width (rules 7(2) and 7(3))
    are the only checks the engine cannot currently assess. The evidence contract
    already carries `measurements` for them; nothing produces one yet.

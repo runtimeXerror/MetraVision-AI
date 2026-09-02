@@ -2,7 +2,7 @@
   "name": "sih26034-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "SIH26034 \u2014 REST API for the Packaged Commodities Compliance Scanner (Phase 2)",
+  "description": "SIH26034 — REST API for the Packaged Commodities Compliance Scanner (Phase 2)",
   "main": "dist/index.js",
   "engines": {
     "node": ">=20.0.0"
