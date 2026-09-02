@@ -127,15 +127,45 @@ const IMPORT_EXTRA: FieldRequirement[] = [
 export const RULE_SETS: Record<ProductCategory, RuleSet> = {
   packaged_food: { id: 'rs-food-v1', label: 'Packaged Food Commodities', fields: [...COMMON, ...FOOD_EXTRA] },
   beverage: { id: 'rs-beverage-v1', label: 'Packaged Beverages', fields: [...COMMON, ...FOOD_EXTRA] },
+  /**
+   * Soap, shampoo, toothpaste and the like.
+   *
+   * Kept separate from `cosmetic` even though both carry the batch and expiry
+   * requirements, because the two are regulated under different provisions and
+   * an inspector reading the report should see which one was applied.
+   */
+  personal_care: {
+    id: 'rs-personal-care-v1',
+    label: 'Personal Care & Toiletries',
+    fields: [...COMMON, ...COSMETIC_EXTRA],
+  },
   cosmetic: { id: 'rs-cosmetic-v1', label: 'Cosmetics & Toiletries', fields: [...COMMON, ...COSMETIC_EXTRA] },
   household: { id: 'rs-household-v1', label: 'Household Commodities', fields: COMMON },
+  /**
+   * Medicines are labelled under the Drugs and Cosmetics Rules, which demand a
+   * batch number and an expiry date on every pack.
+   */
+  pharmaceutical: {
+    id: 'rs-pharma-v1',
+    label: 'Pharmaceuticals',
+    fields: [...COMMON, ...COSMETIC_EXTRA],
+  },
+  medical_device: { id: 'rs-medical-v1', label: 'Medical Devices', fields: [...COMMON, ...COSMETIC_EXTRA] },
   apparel: {
     id: 'rs-apparel-v1',
     label: 'Garments & Textiles',
     fields: COMMON.filter((field) => field.name !== 'net_quantity'),
   },
+  /**
+   * Footwear is declared by size rather than by weight or measure, so the net
+   * quantity requirement does not apply — the same reasoning as apparel.
+   */
+  footwear: {
+    id: 'rs-footwear-v1',
+    label: 'Footwear',
+    fields: COMMON.filter((field) => field.name !== 'net_quantity'),
+  },
   electronics: { id: 'rs-electronics-v1', label: 'Electronic Goods', fields: [...COMMON, ...IMPORT_EXTRA] },
-  medical_device: { id: 'rs-medical-v1', label: 'Medical Devices', fields: [...COMMON, ...COSMETIC_EXTRA] },
   other: { id: 'rs-general-v1', label: 'General Commodities', fields: COMMON },
 };
 

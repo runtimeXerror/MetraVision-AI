@@ -27,10 +27,63 @@ export interface LocationValue {
   address: string;
   district?: string;
   state?: string;
+  pincode?: string;
   latitude?: number;
   longitude?: number;
   accuracyM?: number;
 }
+
+/**
+ * Builds the street address from a reverse-geocode.
+ *
+ * Expo's `LocationGeocodedAddress` is not as tidy as its field names suggest,
+ * and the naive join produced addresses like
+ * "Kaveri Complex, Kaveri Complex, Jayanagar, Bengaluru, Bengaluru":
+ *
+ *   · `name` is frequently the street number, the building name, *or* a
+ *     repeat of `street` — so it is only worth keeping when it adds something.
+ *   · `district` here is the sub-locality (Jayanagar), not the administrative
+ *     district. The administrative one is `subregion`, which is what the
+ *     District field below wants. Two different meanings, one word.
+ *   · `city` and `subregion` are routinely identical in metros.
+ *
+ * So parts are de-duplicated case-insensitively, and any part already
+ * contained in one already kept is dropped. The PIN is deliberately excluded —
+ * it has a field of its own, and repeating it in the street line is how a
+ * report ends up with two of them.
+ */
+function composeAddress(place: Location.LocationGeocodedAddress): string {
+  const parts = [
+    place.name,
+    place.streetNumber,
+    place.street,
+    place.district,
+    place.subregion && place.subregion !== place.city ? undefined : undefined,
+    place.city,
+  ];
+
+  const kept: string[] = [];
+
+  for (const part of parts) {
+    const value = part?.trim();
+    if (!value) continue;
+
+    const lower = value.toLowerCase();
+    const redundant = kept.some(
+      (existing) =>
+        existing.toLowerCase() === lower ||
+        existing.toLowerCase().includes(lower) ||
+        lower.includes(existing.toLowerCase()),
+    );
+
+    if (!redundant) kept.push(value);
+  }
+
+  return kept.join(', ');
+}
+
+/** Six digits, the only shape an Indian PIN takes. */
+const PINCODE = /^[1-9][0-9]{5}$/;
 
 type Status =
   | { kind: 'idle' }
@@ -83,14 +136,19 @@ export function LocationField({
         const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
 
         if (place) {
-          const address = [place.name, place.street, place.district, place.city]
-            .filter((part, index, all) => part && all.indexOf(part) === index)
-            .join(', ');
+          const address = composeAddress(place);
+          const pincode = place.postalCode?.trim();
 
           onChange({
             address: address || value.address,
+            // `subregion` is the administrative district; `city` is the
+            // fallback for a metro where the two collapse into one name.
             district: place.subregion ?? place.city ?? undefined,
             state: place.region ?? undefined,
+            // Only when it is a real PIN. Some geocoders return a partial or
+            // foreign-format postcode, and a bad value here is worse than an
+            // empty one: the field is what district reports reconcile against.
+            pincode: pincode && PINCODE.test(pincode) ? pincode : value.pincode,
           });
           setShowParts(true);
         }
@@ -105,7 +163,12 @@ export function LocationField({
         message: caught instanceof Error ? caught.message : 'Could not read the location.',
       });
     }
-  }, [onChange, value.address]);
+  }, [onChange, value.address, value.pincode]);
+
+  const pincodeError =
+    value.pincode && value.pincode.length > 0 && !PINCODE.test(value.pincode)
+      ? 'Six digits, e.g. 560058.'
+      : undefined;
 
   const locating = status.kind === 'locating';
   const hasFix = value.latitude !== undefined && value.longitude !== undefined;
@@ -197,14 +260,14 @@ export function LocationField({
         </Row>
       ) : null}
 
-      {showParts || value.district || value.state ? (
+      {showParts || value.district || value.state || value.pincode ? (
         <View style={{ marginTop: spacing.sm }}>
           <Txt variant="caption" color={colors.textFaint} style={{ marginBottom: spacing.sm }}>
-            Read from the location. Correct either if it is wrong — the reading is a guess, and
+            Read from the location. Correct any of them if wrong — the reading is a guess, and
             these are what the district and state reports are grouped by.
           </Txt>
 
-          <Row gap={spacing.md} align="flex-start">
+          <Row gap={spacing.md} align="flex-start" style={{ marginBottom: spacing.md }}>
             <Input
               label="District"
               placeholder="District"
@@ -222,6 +285,19 @@ export function LocationField({
               containerStyle={{ flex: 1, marginBottom: 0 }}
             />
           </Row>
+
+          <Input
+            label="PIN code"
+            placeholder="560058"
+            icon="mail-outline"
+            value={value.pincode ?? ''}
+            // Digits only: the keyboard is numeric, but a paste is not.
+            onChangeText={(text) => onChange({ pincode: text.replace(/[^0-9]/g, '').slice(0, 6) })}
+            keyboardType="number-pad"
+            maxLength={6}
+            error={pincodeError}
+            containerStyle={{ marginBottom: 0 }}
+          />
         </View>
       ) : null}
     </View>

@@ -78,6 +78,7 @@ export const scanSchema = z.object({
         address: z.string().trim().min(1).max(400),
         district: z.string().trim().max(120).optional(),
         state: z.string().trim().max(120).optional(),
+        pincode: z.string().trim().regex(/^[1-9][0-9]{5}$/).optional(),
         latitude: z.coerce.number().min(-90).max(90).optional(),
         longitude: z.coerce.number().min(-180).max(180).optional(),
         accuracyM: z.coerce.number().nonnegative().optional(),

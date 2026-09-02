@@ -303,6 +303,8 @@ export interface InspectionDetails {
   /** Resolved from the fix, and editable: a reverse-geocode is a guess. */
   district?: string;
   state?: string;
+  /** Six-digit PIN, resolved from the fix and editable for the same reason. */
+  pincode?: string;
   /** The fix itself, kept even when the address above is corrected by hand. */
   latitude?: number;
   longitude?: number;

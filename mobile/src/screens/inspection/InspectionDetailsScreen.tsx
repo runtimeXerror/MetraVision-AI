@@ -169,6 +169,7 @@ export function InspectionDetailsScreen() {
                 address: details.location,
                 district: details.district,
                 state: details.state,
+                pincode: details.pincode,
                 latitude: details.latitude,
                 longitude: details.longitude,
                 accuracyM: details.accuracyM,
@@ -177,6 +178,7 @@ export function InspectionDetailsScreen() {
                 if (patch.address !== undefined) setDetail('location', patch.address);
                 if (patch.district !== undefined) setDetail('district', patch.district);
                 if (patch.state !== undefined) setDetail('state', patch.state);
+                if (patch.pincode !== undefined) setDetail('pincode', patch.pincode);
                 if (patch.latitude !== undefined) setDetail('latitude', patch.latitude);
                 if (patch.longitude !== undefined) setDetail('longitude', patch.longitude);
                 if (patch.accuracyM !== undefined) setDetail('accuracyM', patch.accuracyM);
@@ -195,12 +197,11 @@ export function InspectionDetailsScreen() {
 
             <Select<ProductCategory>
               label="Product category"
-              placeholder="Detect automatically"
+              placeholder="Select a category"
               value={details.productCategory}
               options={CATEGORY_OPTIONS}
               onChange={setCategory}
-              clearable
-              hint="Optional. Leave unset and the category is inferred from the label; the applicable rules follow from it."
+              hint="Which declarations the package must carry follows from this. Pick Other if none fit."
             />
 
             <Input

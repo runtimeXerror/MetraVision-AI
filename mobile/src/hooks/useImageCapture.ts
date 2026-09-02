@@ -33,6 +33,36 @@ function explainPermission(kind: 'camera' | 'gallery'): void {
   );
 }
 
+/**
+ * Asks where a replacement photograph should come from.
+ *
+ * Retake used to go straight to the camera, which is wrong in the field more
+ * often than it is right: an inspector who has already photographed the label
+ * on their own phone, or been sent it by a colleague, had no way to attach it
+ * and had to re-shoot the packet. The initial capture step has offered both
+ * sources all along — this makes the replace path match it.
+ *
+ * Lives here rather than in the two screens that need it so the wording and
+ * the cancel handling stay in one place; that is the same reason
+ * `explainPermission` is here.
+ */
+function askSource(): Promise<ImageSource | null> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      'Replace this photograph',
+      'Take a new photograph, or upload one already on this device.',
+      [
+        { text: 'Take photo', onPress: () => resolve('camera') },
+        { text: 'Upload from gallery', onPress: () => resolve('gallery') },
+        // `onDismiss` covers an Android back-press, where no button fires and
+        // the promise would otherwise never settle and leave the button stuck.
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(null) },
+    );
+  });
+}
+
 export function useImageCapture() {
   const addImage = useImageStore((state) => state.add);
   const replaceImage = useImageStore((state) => state.replace);
@@ -146,5 +176,20 @@ export function useImageCapture() {
     [pick, replaceImage],
   );
 
-  return { capture, retake, busy };
+  /**
+   * Retakes an image, asking first whether to shoot it or upload one.
+   *
+   * The source is chosen before `retake` runs, so `busy` covers only the
+   * picker and not the time the inspector spends reading the prompt.
+   */
+  const retakeFrom = useCallback(
+    async (imageId: string) => {
+      const source = await askSource();
+      if (!source) return;
+      await retake(imageId, source);
+    },
+    [retake],
+  );
+
+  return { capture, retake, retakeFrom, busy };
 }

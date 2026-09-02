@@ -101,6 +101,8 @@ export interface InspectionAttrs {
     address: string;
     district?: string;
     state?: string;
+    /** Six-digit Indian PIN, from the reverse-geocode or typed by the inspector. */
+    pincode?: string;
     latitude?: number;
     longitude?: number;
     accuracyM?: number;
@@ -312,6 +314,7 @@ const inspectionSchema = new Schema<InspectionAttrs, InspectionModel, Inspection
       address: { type: String, required: true, trim: true },
       district: { type: String, trim: true },
       state: { type: String, trim: true },
+      pincode: { type: String, trim: true },
       // Where the device was standing when the inspection was opened. Kept
       // beside the address rather than replacing it: an inspector may correct
       // the address a reverse-geocode got wrong, and the fix itself is the
@@ -433,6 +436,7 @@ inspectionSchema.methods.toDTO = function toDTO(): InspectionDTO {
       address: this.location.address,
       district: this.location.district,
       state: this.location.state,
+      pincode: this.location.pincode,
       latitude: this.location.latitude,
       longitude: this.location.longitude,
       accuracyM: this.location.accuracyM,

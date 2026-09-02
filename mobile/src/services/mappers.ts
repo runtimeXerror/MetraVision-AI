@@ -72,7 +72,7 @@ export interface InspectionDTO {
   inspectionId: string;
   inspector: { id: string; name: string; inspectorId: string; role: string };
   business: { name: string; ownerName?: string; contact?: string };
-  location: { address: string; district?: string; state?: string };
+  location: { address: string; district?: string; state?: string; pincode?: string };
   productCategory?: string;
   productName?: string;
   images: Array<{
@@ -193,22 +193,28 @@ const ROLE_IN: Record<string, UserRole> = {
 const CATEGORY_IN: Record<string, ProductCategory> = {
   packaged_food: 'food',
   beverage: 'beverage',
+  personal_care: 'personal_care',
   cosmetic: 'cosmetic',
   household: 'household',
-  apparel: 'apparel',
-  electronics: 'electronics',
+  pharmaceutical: 'pharmaceutical',
   medical_device: 'medical_device',
+  apparel: 'apparel',
+  footwear: 'footwear',
+  electronics: 'electronics',
   other: 'other',
 };
 
 const CATEGORY_OUT: Record<ProductCategory, string> = {
   food: 'packaged_food',
   beverage: 'beverage',
+  personal_care: 'personal_care',
   cosmetic: 'cosmetic',
   household: 'household',
-  apparel: 'apparel',
-  electronics: 'electronics',
+  pharmaceutical: 'pharmaceutical',
   medical_device: 'medical_device',
+  apparel: 'apparel',
+  footwear: 'footwear',
+  electronics: 'electronics',
   other: 'other',
 };
 

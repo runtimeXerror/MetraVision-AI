@@ -48,6 +48,9 @@ export async function createInspection(
         address: details.location,
         district: details.district || undefined,
         state: details.state || undefined,
+        // Omitted unless it is a full six digits — the server rejects a
+        // partial PIN, and a half-typed one must not fail the whole create.
+        pincode: /^[1-9][0-9]{5}$/.test(details.pincode ?? '') ? details.pincode : undefined,
         latitude: details.latitude,
         longitude: details.longitude,
         accuracyM: details.accuracyM,
@@ -73,6 +76,7 @@ export async function updateInspection(
       address: patch.location,
       district: patch.district || undefined,
       state: patch.state || undefined,
+      pincode: /^[1-9][0-9]{5}$/.test(patch.pincode ?? '') ? patch.pincode : undefined,
       latitude: patch.latitude,
       longitude: patch.longitude,
       accuracyM: patch.accuracyM,

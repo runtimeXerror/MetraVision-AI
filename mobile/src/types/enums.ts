@@ -19,11 +19,14 @@ export type UserRole = (typeof USER_ROLES)[number];
 export const PRODUCT_CATEGORIES = [
   'food',
   'beverage',
+  'personal_care',
   'cosmetic',
   'household',
-  'apparel',
-  'electronics',
+  'pharmaceutical',
   'medical_device',
+  'apparel',
+  'footwear',
+  'electronics',
   'other',
 ] as const;
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];

@@ -47,7 +47,7 @@ export function CaptureScreen() {
   const removeImage = useImageStore((state) => state.remove);
   const assessQuality = useImageStore((state) => state.assessQuality);
 
-  const { capture, retake, busy } = useImageCapture();
+  const { capture, retakeFrom, busy } = useImageCapture();
   const [preview, setPreview] = useState<ProductImage | null>(null);
 
   const countFor = (side: ImageSide) => images.filter((image) => image.side === side).length;
@@ -336,14 +336,16 @@ export function CaptureScreen() {
 
               <Row gap={spacing.md}>
                 <Button
-                  title="Retake"
-                  icon="camera-reverse-outline"
+                  title="Replace"
+                  icon="swap-horizontal-outline"
                   variant="secondary"
                   style={{ flex: 1 }}
                   onPress={() => {
                     const target = preview.id;
                     setPreview(null);
-                    void retake(target);
+                    // Offers camera or gallery — an inspector may already have
+                    // a usable photograph on the device.
+                    void retakeFrom(target);
                   }}
                 />
                 <Button

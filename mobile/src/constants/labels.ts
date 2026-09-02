@@ -54,14 +54,21 @@ export const inspectionStatusTones: Record<InspectionStatus, Tone> = {
   finalized: 'success',
 };
 
+/**
+ * Ordered as the picker renders them: the categories inspected most often
+ * under the Packaged Commodities Rules come first, and `other` stays last.
+ */
 export const productCategoryLabels: Record<ProductCategory, string> = {
-  food: 'Food',
+  food: 'Packaged Food',
   beverage: 'Beverage',
+  personal_care: 'Personal Care & Toiletries',
   cosmetic: 'Cosmetic',
-  household: 'Household',
-  apparel: 'Apparel',
-  electronics: 'Electronics',
+  household: 'Household & Cleaning',
+  pharmaceutical: 'Pharmaceutical',
   medical_device: 'Medical Device',
+  apparel: 'Apparel & Textiles',
+  footwear: 'Footwear',
+  electronics: 'Electronics',
   other: 'Other',
 };
 

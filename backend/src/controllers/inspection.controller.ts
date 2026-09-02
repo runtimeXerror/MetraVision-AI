@@ -68,6 +68,7 @@ export async function createInspection(req: Request, res: Response): Promise<Res
       address: string;
       district?: string;
       state?: string;
+      pincode?: string;
       latitude?: number;
       longitude?: number;
       accuracyM?: number;

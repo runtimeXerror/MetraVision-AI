@@ -46,14 +46,31 @@ export type InspectionStatus = (typeof INSPECTION_STATUSES)[number];
 export const COMPLIANCE_STATUSES = ['COMPLIANT', 'VIOLATION_DETECTED', 'REVIEW_REQUIRED'] as const;
 export type ComplianceStatus = (typeof COMPLIANCE_STATUSES)[number];
 
+/**
+ * The commodity classes an inspector picks from.
+ *
+ * Ordered by how often they are actually inspected under the Packaged
+ * Commodities Rules, because this is rendered as a list and the common case
+ * should not be a scroll away. `other` stays last, and stays: a category list
+ * that forces a wrong choice is worse than one that admits it does not know.
+ *
+ * Adding a value here is safe — every schema, the Mongoose enum and both
+ * clients derive from this array. Renaming or removing one is not: the rule
+ * engine matches `productContext.category` by string
+ * (`compliance/data/exceptions.ts` keys off `packaged_food` and `cosmetic`),
+ * and inspections already in the database carry the old value.
+ */
 export const PRODUCT_CATEGORIES = [
   'packaged_food',
   'beverage',
+  'personal_care',
   'cosmetic',
   'household',
-  'apparel',
-  'electronics',
+  'pharmaceutical',
   'medical_device',
+  'apparel',
+  'footwear',
+  'electronics',
   'other',
 ] as const;
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
@@ -269,6 +286,8 @@ export interface InspectionDTO {
     address: string;
     district?: string;
     state?: string;
+    /** Six-digit Indian PIN, reverse-geocoded or typed. */
+    pincode?: string;
     /** GPS fix taken when the inspection was opened, if the device gave one. */
     latitude?: number;
     longitude?: number;

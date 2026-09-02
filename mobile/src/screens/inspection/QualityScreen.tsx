@@ -38,7 +38,7 @@ export function QualityScreen() {
   const uploaded = useImageStore((state) => state.uploaded);
   const markUploaded = useImageStore((state) => state.markUploaded);
   const inspectionId = useInspectionStore((state) => state.id);
-  const { retake, busy } = useImageCapture();
+  const { retakeFrom, busy } = useImageCapture();
 
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -52,7 +52,10 @@ export function QualityScreen() {
 
   const onRetake = async () => {
     if (!selected) return;
-    await retake(selected.id);
+    // Asks camera or gallery. This screen is where a poor quality score sends
+    // an inspector, and re-shooting is not always the fix — the better
+    // photograph may already be on the phone.
+    await retakeFrom(selected.id);
     // A fresh photograph invalidates the old assessment; re-run it.
     assessQuality();
   };
@@ -246,8 +249,8 @@ export function QualityScreen() {
       <ActionBar>
         <Row gap={spacing.md}>
           <Button
-            title="Retake"
-            icon="camera-reverse-outline"
+            title="Replace"
+            icon="swap-horizontal-outline"
             variant="secondary"
             size="lg"
             loading={busy}

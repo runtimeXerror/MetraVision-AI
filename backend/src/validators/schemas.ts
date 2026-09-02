@@ -98,6 +98,20 @@ export const changePasswordSchema = z.object({
 
 /* ── Inspections ──────────────────────────────────────────────────────────── */
 
+/**
+ * Indian PIN code: six digits, never starting at zero.
+ *
+ * Validated rather than accepted as free text because it is what the district
+ * and state reports are reconciled against, and a five-digit typo silently
+ * groups an inspection under nothing. Optional everywhere — an inspector in a
+ * market with no signal may have no reverse-geocode to fill it from, and
+ * refusing an inspection over a postcode would be absurd.
+ */
+export const pincodeSchema = z
+  .string()
+  .trim()
+  .regex(/^[1-9][0-9]{5}$/, 'Enter a six-digit PIN code.');
+
 export const createInspectionSchema = z.object({
   business: z.object({
     name: z.string().trim().min(2, 'Business or shop name is required.').max(160),
@@ -108,6 +122,7 @@ export const createInspectionSchema = z.object({
     address: z.string().trim().min(3, 'Location is required.').max(300),
     district: z.string().trim().max(80).optional(),
     state: z.string().trim().max(80).optional(),
+    pincode: pincodeSchema.optional(),
     latitude: z.coerce.number().min(-90).max(90).optional(),
     longitude: z.coerce.number().min(-180).max(180).optional(),
     accuracyM: z.coerce.number().min(0).max(100000).optional(),
@@ -131,6 +146,7 @@ export const updateInspectionSchema = z
         address: z.string().trim().min(3).max(300).optional(),
         district: z.string().trim().max(80).optional(),
         state: z.string().trim().max(80).optional(),
+        pincode: pincodeSchema.optional(),
         latitude: z.coerce.number().min(-90).max(90).optional(),
         longitude: z.coerce.number().min(-180).max(180).optional(),
         accuracyM: z.coerce.number().min(0).max(100000).optional(),
