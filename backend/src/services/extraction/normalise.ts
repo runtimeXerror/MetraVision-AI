@@ -26,7 +26,23 @@
  * a stray full stop behind. `Re` additionally requires a digit, since on its
  * own it is the start of too many ordinary words.
  */
-const RUPEE_FORMS = /[₹﹩]|\b(?:Rs|INR|Rupees?)\.?(?=\s*\d|\s|$)|\bRe\.?(?=\s*\d)/gi;
+const RUPEE_FORMS =
+  /[₹﹩]|\b(?:Rs|INR|Rupees?)\.?(?=\s*\d|\s|$)|\bRe\.?(?=\s*\d)|\bR5\.(?=\s*\d)/gi;
+
+/**
+ * `R5.` in the alternation above is an OCR confusion, not a currency.
+ *
+ * `s` and `5` are the classic recogniser swap, and on a photographed packet
+ * "Rs." comes back as "R5." routinely — it did twice on the first real packet
+ * this system read, which is why the MRP came out as `R5.60.00` and the price
+ * check found nothing to test. Without the currency marker the line does not
+ * look like a price at all, so the declaration is not merely misread, it is
+ * invisible.
+ *
+ * Deliberately narrow: only `R5` immediately followed by a full stop and a
+ * digit. `R5` alone is a plausible model number, and rewriting that into a
+ * price is a worse error than the one being fixed.
+ */
 
 /**
  * Latin/Devanagari lookalikes an OCR engine substitutes in numeric runs.
@@ -115,11 +131,7 @@ export interface DigitRepair {
 export function repairDigits(text: string): DigitRepair {
   let repaired = false;
 
-  // Spans never cross a space: "5O g" must split into "5O" and "g", so the
-  // unit is not counted as a stray letter inside the number and the number is
-  // repaired on its own. Letting a span run over the space leaves "5O g"
-  // looking like two letters against one digit, and so leaves it broken.
-  const result = text.replace(/[0-9OoQDlIi|ZSsbGTBgq][0-9OoQDlIi|ZSsbGTBgq,.]*/g, (span) => {
+  const repairSpan = (span: string): string => {
     // Only touch a span that is mostly digits already and holds at least one.
     const digits = (span.match(/[0-9]/g) ?? []).length;
     const letters = (span.match(/[A-Za-z|]/g) ?? []).length;
@@ -128,6 +140,32 @@ export function repairDigits(text: string): DigitRepair {
     const fixed = span.replace(/[OoQDlIi|ZSsbGTBgq]/g, (character) => DIGIT_CONFUSIONS[character] ?? character);
     if (fixed !== span) repaired = true;
     return fixed;
+  };
+
+  // Spans never cross a space: "5O g" must split into "5O" and "g", so the
+  // unit is not counted as a stray letter inside the number and the number is
+  // repaired on its own. Letting a span run over the space leaves "5O g"
+  // looking like two letters against one digit, and so leaves it broken.
+  const result = text.replace(/[0-9OoQDlIi|ZSsbGTBgq][0-9OoQDlIi|ZSsbGTBgq,.]*/g, (span) => {
+    /**
+     * A unit written tight against its number is not a character confusion.
+     *
+     * `g`, `G`, `b`, `S`, `T` and `q` are all in the confusion table, and Indian
+     * packaging almost always prints the net quantity closed up — `200g`,
+     * `500G`, `75gm`. Without this guard those became `2009`, `1006` and
+     * `759m`: the unit was eaten, the quantity pattern then found no unit to
+     * match, and the extractor fell through to whatever other number it could
+     * see. On a food label that is the nutrition table, so a 200g packet was
+     * reported as 22.2 g — a wrong declaration, recorded against a trader.
+     *
+     * The number in front is still repaired: `2O0g` is `200g`.
+     */
+    const closedUnit = /^(.*[0-9OoQDlIi|ZSsbGTBgq].*?)([A-Za-z]{1,4})$/.exec(span);
+    if (closedUnit?.[1] && closedUnit[2] && canonicalUnit(closedUnit[2])) {
+      return repairSpan(closedUnit[1]) + closedUnit[2];
+    }
+
+    return repairSpan(span);
   });
 
   return { text: result, repaired };
@@ -175,6 +213,26 @@ const UNIT_CANONICAL: Record<string, string> = {
   pc: 'pcs', pcs: 'pcs', piece: 'piece', pieces: 'pieces',
   pair: 'pair', pairs: 'pair', set: 'set', sets: 'set', unit: 'unit', units: 'unit',
   u: 'unit',
+
+  /**
+   * Devanagari unit names.
+   *
+   * A bilingual package may print its net quantity only in Hindi — "शुद्ध मात्रा
+   * 200 ग्राम" — and rule 6(1)(c) is satisfied by that declaration. Without
+   * these the quantity pattern finds a number with no recognisable unit and the
+   * declaration is reported missing, which is a violation raised against a
+   * trader who complied.
+   *
+   * They canonicalise to the same standard units, so nothing downstream has to
+   * know the label was in Hindi.
+   */
+  ग्राम: 'g', ग्रा: 'g',
+  किलोग्राम: 'kg', किग्रा: 'kg', किलो: 'kg',
+  मिलीग्राम: 'mg',
+  मिलीलीटर: 'ml', मिली: 'ml',
+  लीटर: 'l', ली: 'l',
+  मीटर: 'm', सेंटीमीटर: 'cm', मिलीमीटर: 'mm',
+  नग: 'No', जोड़ी: 'pair',
 };
 
 export function canonicalUnit(token: string): string | null {

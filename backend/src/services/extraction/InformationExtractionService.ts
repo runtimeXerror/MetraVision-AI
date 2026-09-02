@@ -138,6 +138,109 @@ function startsNewDeclaration(text: string): boolean {
   return ALL_LABELS.some((label) => label.test(text));
 }
 
+/* ── Geometry: finding a value that sits beside its label ─────────────────── */
+
+/**
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+ *
+ * A declaration is not always one line of text.
+ *
+ * On a real Haldiram's packet the label and its value are two separate
+ * detections — `NET QUANTITY:` at x 1436–1798, and `200g` at x 1864–2001 on
+ * the same row. The label pass matched `NET QUANTITY:`, found nothing after
+ * the colon, gave up, and the pattern pass then claimed `22.2 g` from the
+ * *nutrition table* as the net quantity. The package declares 200g; the report
+ * said 22.2g, and the rule engine recorded a violation on it.
+ *
+ * That is the worst failure mode this system has: not a missed declaration,
+ * but a confidently wrong one, sourced from somewhere else on the packet.
+ *
+ * Printed labels put the value to the right of the label, or directly beneath
+ * it. Both are found here by geometry rather than by reading order, because
+ * reading order is exactly what a multi-column packet destroys — no
+ * linearisation of a two-column declaration block is correct, so the fix
+ * cannot be a better sort.
+ *
+ * This is only possible because the OCR provider returns a box per line.
+ */
+
+type Box = [number, number, number, number];
+
+function boxOf(line: Line): Box | undefined {
+  return line.region?.boundingBox;
+}
+
+/** Fraction of the shorter span where two intervals overlap. 0 when disjoint. */
+function overlapRatio(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
+  const overlap = Math.min(aEnd, bEnd) - Math.max(aStart, bStart);
+  if (overlap <= 0) return 0;
+
+  const shorter = Math.min(aEnd - aStart, bEnd - bStart);
+  return shorter > 0 ? overlap / shorter : 0;
+}
+
+/** Same printed row: vertical spans overlap for most of the shorter one. */
+const SAME_ROW = 0.5;
+/** Same column: horizontal spans overlap enough to be under the same heading. */
+const SAME_COLUMN = 0.35;
+/**
+ * How far a value may sit from its label, as a multiple of the label's own
+ * height. Generous enough for the whitespace a designer leaves between a
+ * declaration and its value, tight enough that it cannot reach the next
+ * column of an unrelated table.
+ */
+const MAX_GAP_RIGHT = 3;
+const MAX_GAP_BELOW = 1.5;
+
+/**
+ * Candidate value lines for a label, nearest first.
+ *
+ * Right-hand neighbours are preferred over ones below: `NET QUANTITY: 200g`
+ * reads across, and a line below a label is as likely to be the next
+ * declaration as it is to be this one's value.
+ */
+function neighboursOf(label: Line, lines: Line[]): Line[] {
+  const anchor = boxOf(label);
+  if (!anchor) return [];
+
+  const [ax1, ay1, ax2, ay2] = anchor;
+  const height = ay2 - ay1;
+  if (height <= 0) return [];
+
+  const right: Array<{ line: Line; gap: number }> = [];
+  const below: Array<{ line: Line; gap: number }> = [];
+
+  for (const candidate of lines) {
+    if (candidate === label) continue;
+    // Never pull a value out of another image — a box from photograph two says
+    // nothing about where this declaration sits on photograph one.
+    if (candidate.region?.imageId !== label.region?.imageId) continue;
+
+    const box = boxOf(candidate);
+    if (!box) continue;
+
+    const [bx1, by1, bx2, by2] = box;
+
+    if (overlapRatio(ay1, ay2, by1, by2) >= SAME_ROW && bx1 >= ax1) {
+      const gap = bx1 - ax2;
+      if (gap >= -height && gap <= MAX_GAP_RIGHT * height) right.push({ line: candidate, gap });
+      continue;
+    }
+
+    if (overlapRatio(ax1, ax2, bx1, bx2) >= SAME_COLUMN && by1 >= ay2) {
+      const gap = by1 - ay2;
+      if (gap <= MAX_GAP_BELOW * height) below.push({ line: candidate, gap });
+    }
+  }
+
+  const nearestFirst = (a: { gap: number }, b: { gap: number }): number => a.gap - b.gap;
+
+  return [
+    ...right.sort(nearestFirst).map((entry) => entry.line),
+    ...below.sort(nearestFirst).map((entry) => entry.line),
+  ];
+}
+
 /** An address is complete once a PIN code has been seen. */
 const HAS_PIN = /\b\d{6}\b/;
 
@@ -238,13 +341,45 @@ export class InformationExtractionService {
           after = line.text;
         }
 
-        const value = spec.extract(after, line.text);
+        let value = spec.extract(after, line.text);
+        /**
+         * The value sits beside the label rather than on it.
+         *
+         * Only attempted on the label pass, and only once the label itself has
+         * yielded nothing: a printed label is direct evidence of *which*
+         * declaration this is, so a value found next to one is far better
+         * sourced than the same string matched by shape somewhere else on the
+         * packet. Without this the pattern pass claims whichever number it
+         * meets first — on a food label, that is the nutrition table.
+         */
+        let valueLine: Line | undefined;
+
+        if (!value && pass === 'LABEL_MATCH') {
+          for (const neighbour of neighboursOf(line, lines)) {
+            if (neighbour.claimedBy && spec.engineField) continue;
+            if (spec.exclude?.test(neighbour.text)) continue;
+
+            const candidate = spec.extract(neighbour.text, neighbour.text);
+            if (candidate) {
+              value = candidate;
+              valueLine = neighbour;
+              break;
+            }
+          }
+        }
+
         if (!value) continue;
 
-        const used = [line];
+        // The label line is kept in the evidence even when the value came from
+        // beside it: an inspector checking the finding needs to see the words
+        // that made this a net quantity and not some other number.
+        const used = valueLine ? [line, valueLine] : [line];
 
         if (spec.continuation) {
-          used.push(...this.continuationOf(line, lines, spec));
+          // Continues from wherever the value was actually read. Starting at
+          // the label would walk the lines after "Manufactured by:" while the
+          // address itself began one line to the right.
+          used.push(...this.continuationOf(valueLine ?? line, lines, spec));
         }
 
         const text = used.length > 1 ? used.map((entry) => entry.text).join(', ') : value.value;

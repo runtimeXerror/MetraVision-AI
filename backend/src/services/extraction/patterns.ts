@@ -102,7 +102,15 @@ function priceLine(_after: string, line: string): ExtractedValue | null {
 
 /* ── Quantity ─────────────────────────────────────────────────────────────── */
 
-const QUANTITY_VALUE = /(\d[\d,]*(?:\.\d+)?)\s*([A-Za-z]{1,12})\b/;
+/**
+ * A number followed by a unit token.
+ *
+ * The unit class includes Devanagari so a Hindi-only declaration —
+ * "200 ग्राम" — is read as a quantity rather than as a number with no
+ * unit. `` does not apply after a Devanagari character, so the tail is
+ * bounded by an explicit negative lookahead instead.
+ */
+const QUANTITY_VALUE = /(\d[\d,]*(?:\.\d+)?)\s*([A-Za-z]{1,12}|\p{Script=Devanagari}{1,12})(?![A-Za-z\p{Script=Devanagari}])/u;
 
 /**
  * A net-quantity declaration: a number and a unit.
@@ -156,6 +164,23 @@ function dateValue(after: string): ExtractedValue | null {
  * read as a retail price would be a false reading with legal consequences. The
  * narrower pattern goes first, always.
  */
+/**
+ * ── A NOTE ON THE DEVANAGARI PATTERNS ──────────────────────────────────────
+ *
+ * They use explicit lookarounds instead of ``.
+ *
+ * JavaScript's `` is defined on ASCII word characters only, so it never
+ * fires beside a Devanagari letter: `/शुद्ध/.test('शुद्ध मात्रा')` is
+ * `false`. Every Hindi label form in this table was written with `` and
+ * therefore matched nothing at all — a package declaring its net quantity only
+ * as "शुद्ध मात्रा 200 ग्राम" had that declaration reported missing, and the
+ * rule engine was handed an absence that was really a blind spot.
+ *
+ * It failed silently because it looks correct, and because every fixture was
+ * written in English.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+
 export const FIELD_SPECS: FieldSpec[] = [
   {
     field: 'unit_sale_price',
@@ -174,8 +199,8 @@ export const FIELD_SPECS: FieldSpec[] = [
       /\bmaximum\s+retail\s+price\b/i,
       /\bmax\.?\s+retail\s+price\b/i,
       /\bretail\s+sale\s+price\b/i,
-      /\bप्रति\s*मूल्य\b/i,
-      /\bअधिकतम\s+खुदरा\s+मूल्य\b/,
+      /(?<![ऀ-ॿ])प्रति\s*मूल्य(?![ऀ-ॿ])/i,
+      /(?<![ऀ-ॿ])अधिकतम\s+खुदरा\s+मूल्य(?![ऀ-ॿ])/,
     ],
     // A per-unit price is a different declaration under a different sub-rule.
     exclude: PER_UNIT,
@@ -188,13 +213,17 @@ export const FIELD_SPECS: FieldSpec[] = [
     engineField: true,
     labels: [
       /\bnet\s*(?:qty|quantity|wt|weight|vol|volume|content)s?\.?\b/i,
+      // `Q` read as `O` is one of the commonest recogniser confusions on a
+      // photographed label. Without this "NET OUANTITY" matches nothing and a
+      // declaration that is present on the package is reported missing.
+      /\bnet\s*[oq0]uantity\b/i,
       /\bquantity\b/i,
       /\bcontents?\b/i,
-      /\bशुद्ध\s*(?:मात्रा|वजन)\b/,
+      /(?<![ऀ-ॿ])शुद्ध\s*(?:मात्रा|वजन)(?![ऀ-ॿ])/,
     ],
     // Never let a price line become a quantity: both carry a number.
     exclude: /(?:₹|\bRs\.?\b|\bINR\b|\bprice\b)/i,
-    unlabelled: /^\s*\d[\d,]*(?:\.\d+)?\s*(?:kg|kgs|g|gm|gms|mg|ml|l|ltr|litre|liter|cm|mm|m|N|No|Nos|pcs|pieces?|pair|set|units?)\s*$/i,
+    unlabelled: /^\s*\d[\d,]*(?:\.\d+)?\s*(?:kg|kgs|g|gm|gms|mg|ml|l|ltr|litre|liter|cm|mm|m|N|No|Nos|pcs|pieces?|pair|set|units?|[\u0900-\u097F]{2,12})\s*$/i,
     extract: quantityValue,
   },
   {
@@ -208,7 +237,7 @@ export const FIELD_SPECS: FieldSpec[] = [
       /\bmfg\.?\s*(?:date|dt)?\b/i,
       /\bmfd\.?\s*(?:date|dt)?\b/i,
       /\bpkd\.?\s*(?:date|dt)?\b/i,
-      /\bनिर्माण\s*(?:तिथि|दिनांक)\b/,
+      /(?<![ऀ-ॿ])निर्माण\s*(?:तिथि|दिनांक)(?![ऀ-ॿ])/,
     ],
     // These are their own declarations under their own clauses.
     exclude: /\b(?:best\s+before|use\s+by|use\s+before|expiry|expires|exp\.?\s*(?:date|dt))\b/i,
@@ -236,7 +265,7 @@ export const FIELD_SPECS: FieldSpec[] = [
       /\bimporter\b/i,
       /\bpacked\s*(?:&|and)?\s*(?:marketed)?\s*by\b/i,
       /\bmarketed\s*by\b/i,
-      /\bनिर्माता\b/,
+      /(?<![ऀ-ॿ])निर्माता(?![ऀ-ॿ])/,
     ],
     continuation: true,
     extract: wholeLine,
