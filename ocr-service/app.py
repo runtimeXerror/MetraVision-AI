@@ -29,6 +29,7 @@ are cores to spare.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -72,7 +73,18 @@ async def lifespan(_: FastAPI):
         # reports a setup problem, which is far more useful than a process
         # that refuses to boot with a stack trace.
         logger.error("startup completed without a usable OCR engine")
-    yield
+
+    try:
+        yield
+    except asyncio.CancelledError:
+        # Ctrl-C. Uvicorn cancels the lifespan task to shut down, and letting
+        # that propagate prints three chained tracebacks ending in
+        # `KeyboardInterrupt` — which reads exactly like a crash, every single
+        # time the service is stopped normally. Swallowed here so a deliberate
+        # stop looks deliberate.
+        pass
+    finally:
+        logger.info("OCR service stopped.")
 
 
 app = FastAPI(
