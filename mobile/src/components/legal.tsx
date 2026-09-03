@@ -79,8 +79,9 @@ export function LegalSummaryCard({ scan }: { scan: ScanRecord }) {
             style={{ marginTop: 2 }}
           />
           <Txt variant="caption" color={colors.textMuted} style={{ flex: 1 }}>
-            {pluralize(summary.pendingCapability, 'check')} need a physical measurement — letter
-            height or panel placement — that this version does not take from a photograph.
+            {pluralize(summary.pendingCapability, 'check')} need the printed text measured in
+            millimetres, which a photograph alone cannot give — check the font size against the
+            package itself.
           </Txt>
         </Row>
       ) : null}

@@ -113,9 +113,10 @@ export function LegalPanel({ scan }: { scan: ScanRecord }) {
       {legal.summary.pendingCapability > 0 ? (
         <Notice tone="info" icon={Construction}>
           {legal.summary.pendingCapability} check
-          {legal.summary.pendingCapability === 1 ? '' : 's'} could not be assessed: they need a
-          physical measurement — letter height, panel placement or legibility — that this version
-          does not take from an image. They are counted separately and do not affect the verdict.
+          {legal.summary.pendingCapability === 1 ? '' : 's'} need the printed text measured in
+          millimetres. A photograph gives pixels, and converting them needs the package's physical
+          size, so the font size has to be checked against the package itself. These are counted
+          separately and do not affect the verdict.
         </Notice>
       ) : null}
 

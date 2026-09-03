@@ -78,7 +78,25 @@ const READABILITY_REASONS = new Set([
 function categoryFor(check: ComplianceCheck): ViolationCategory {
   if (ABSENCE_REASONS.has(check.reasonCode)) return 'MISSING_DECLARATION';
   if (READABILITY_REASONS.has(check.reasonCode)) return 'READABILITY';
-  if (check.reasonCode === 'MEASUREMENT_NOT_AVAILABLE') return 'PLACEMENT';
+  /**
+   * A check waiting on a measurement is a readability question, not a
+   * placement one.
+   *
+   * This used to say `PLACEMENT`, and it was simply wrong: the only checks
+   * that reach here are the two Rule 7 font-size ones, which the corpus itself
+   * categorises as TYPOGRAPHY. An inspector reading the summary saw "Placement"
+   * against a package whose declarations were on the right face, and nothing on
+   * the screen explained why — the word described neither the rule nor the
+   * problem.
+   *
+   * `READABILITY` is the honest label and the one a person understands without
+   * being taught the vocabulary: the question really is whether the print is
+   * big enough to read. `PLACEMENT` stays in the enum — it is a real legal
+   * category and old records may carry it — but nothing produces it now, and
+   * nothing should until a rule actually validates which face a declaration is
+   * on.
+   */
+  if (check.reasonCode === 'MEASUREMENT_NOT_AVAILABLE') return 'READABILITY';
   return (check.field ? CATEGORY_BY_FIELD[check.field] : undefined) ?? 'INCORRECT_DECLARATION';
 }
 
