@@ -34,7 +34,7 @@ evidence; these arrays are inputs to the model and are then discarded.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import cv2
 import numpy as np
@@ -179,4 +179,114 @@ def enhance(image: PreparedImage) -> PreparedImage:
         original_height=image.original_height,
         steps=[*image.steps, "clahe-contrast"],
         low_resolution=image.low_resolution,
+    )
+
+
+# ── VARIANTS AND ROTATION ───────────────────────────────────────────────────
+#
+# Everything below exists for one reason: a label photographed in a shop is
+# often not a label the detector can read on the first attempt. Curved bottles
+# throw the text out of plane, a foil sachet blows the contrast, an MRP box is
+# laser-printed dark-on-dark, and a phone held sideways produces a label rotated
+# ninety degrees that no per-line orientation classifier will fix.
+#
+# The response is to read the image more than once and keep the best of what
+# comes back — not to "clean up" the image and hope. That is the important
+# distinction: a variant is an *additional* attempt, never a replacement. The
+# original is always read too, so a transform that destroys faint print can
+# only ever add nothing, never take a reading away.
+#
+# The cost is real, which is why `ocr_service` runs these conditionally rather
+# than always. See the note there.
+
+
+def sharpen(image: PreparedImage) -> PreparedImage:
+    """
+    An unsharp mask, for print that has gone soft.
+
+    Helps most on the case it was added for: small type photographed slightly
+    out of focus, where the strokes are present but smeared into each other.
+
+    Deliberately mild — amount 1.5 against a 3px blur. Pushed harder it starts
+    turning JPEG ringing into strokes, and the recogniser reads those as
+    punctuation inside a price.
+    """
+    blurred = cv2.GaussianBlur(image.array, (0, 0), 3)
+    sharpened = cv2.addWeighted(image.array, 1.5, blurred, -0.5, 0)
+
+    return replace(image, array=sharpened, steps=[*image.steps, "sharpen"])
+
+
+def upscale(image: PreparedImage, factor: float = 2.0) -> PreparedImage:
+    """
+    Enlarges the image so small print occupies more pixels.
+
+    The recogniser has a minimum height below which a character simply has too
+    few pixels to identify, and a batch code printed in 1mm type on a 2000px
+    photograph can fall under it. Interpolating adds no information, but it does
+    give the network the input size it was trained for, which in practice is
+    what recovers the line.
+
+    CUBIC rather than LANCZOS here: upscaling with LANCZOS rings around
+    high-contrast edges, and printed text is nothing but high-contrast edges.
+
+    `scale` is updated so boxes still map back to the original photograph —
+    getting that wrong would put every evidence overlay in the wrong place.
+    """
+    enlarged = cv2.resize(
+        image.array, None, fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC
+    )
+
+    return replace(
+        image,
+        array=enlarged,
+        width=enlarged.shape[1],
+        height=enlarged.shape[0],
+        steps=[*image.steps, f"upscale-{factor:g}x"],
+    )
+
+
+def denoise(image: PreparedImage) -> PreparedImage:
+    """
+    Edge-preserving denoise, for photographs taken in poor light.
+
+    Bilateral rather than Gaussian: a Gaussian blur removes the noise and the
+    thin strokes with it. This keeps the edges that are the text.
+    """
+    return replace(
+        image,
+        array=cv2.bilateralFilter(image.array, d=5, sigmaColor=60, sigmaSpace=60),
+        steps=[*image.steps, "denoise"],
+    )
+
+
+def rotate(image: PreparedImage, degrees: int) -> PreparedImage:
+    """
+    Rotates by a right angle.
+
+    Only 90/180/270, because those are lossless and cover the case this is for:
+    a photograph whose EXIF orientation was absent or wrong, so the whole label
+    is on its side. PaddleOCR's text-line orientation classifier handles a line
+    printed upside down; it does not handle the entire image being rotated.
+
+    The frame changes, so `width`/`height` are swapped for the odd multiples.
+    Boxes found in a rotated frame are mapped back by `ocr_service` before they
+    reach the caller.
+    """
+    if degrees % 360 == 0:
+        return image
+
+    codes = {
+        90: cv2.ROTATE_90_CLOCKWISE,
+        180: cv2.ROTATE_180,
+        270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+    }
+    rotated = cv2.rotate(image.array, codes[degrees % 360])
+
+    return replace(
+        image,
+        array=rotated,
+        width=rotated.shape[1],
+        height=rotated.shape[0],
+        steps=[*image.steps, f"rotate-{degrees}"],
     )

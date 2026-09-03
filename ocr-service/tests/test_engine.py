@@ -172,12 +172,21 @@ class TestReadsNothing:
         assert result["fullText"] == ""
         assert result["metadata"]["meanConfidence"] is None
 
-    def test_retries_with_contrast_before_giving_up(self, read):
+    def test_tries_harder_before_giving_up(self, read):
         result = read(encode(Image.new("RGB", (900, 1200), (245, 243, 238))))
 
-        # The enhancement pass only ever runs on an image that already read as
-        # nothing, so it can add readings but never displace good ones.
-        assert "clahe-contrast" in result["metadata"]["preprocessing"]
+        passes = result["metadata"]["passes"]
+
+        # A blank surface reads as nothing, so every extra pass is attempted —
+        # the enhancements, and then the rotations, because an image that reads
+        # as nothing may simply be sideways. They can only add readings: the
+        # original pass is kept and merged with, never replaced.
+        assert passes[0] == "original"
+        assert "clahe" in passes
+        assert any(entry.startswith("rotate-") for entry in passes)
+
+        # And it still concludes, correctly, that there is nothing there.
+        assert result["lines"] == []
 
 
 class TestFailures:

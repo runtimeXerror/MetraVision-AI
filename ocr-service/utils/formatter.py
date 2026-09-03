@@ -203,3 +203,101 @@ def merge_passes(
             kept.append(candidate)
 
     return kept
+
+
+def unrotate(
+    polygon: list[list[int]] | None,
+    degrees: int,
+    width: int,
+    height: int,
+) -> list[list[int]] | None:
+    """
+    Maps a polygon found in a rotated frame back onto the upright one.
+
+    `width`/`height` are the dimensions *before* rotation, which is the frame
+    the caller wants coordinates in.
+
+    Without this a box found on a sideways photograph would be drawn on the
+    stored evidence image at ninety degrees to the text it belongs to — worse
+    than no box at all, because it looks authoritative.
+    """
+    if not polygon or degrees % 360 == 0:
+        return polygon
+
+    turn = degrees % 360
+
+    def back(x: int, y: int) -> list[int]:
+        if turn == 90:
+            # Forward was (x, y) -> (height - 1 - y, x).
+            return [y, height - 1 - x]
+        if turn == 180:
+            return [width - 1 - x, height - 1 - y]
+        # 270: forward was (x, y) -> (y, width - 1 - x).
+        return [width - 1 - y, x]
+
+    return [back(point[0], point[1]) for point in polygon]
+
+
+def merge_variants(
+    primary: list[dict[str, Any]],
+    extra: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Folds a second reading of the *same* image into the first.
+
+    Different from `merge_passes`, and the difference matters. There, two
+    recognisers were reading different scripts and their scores were not
+    comparable, so the primary always won. Here both readings come from the
+    same recogniser looking at the same text through a different enhancement,
+    so the scores *are* comparable and the more confident reading is the better
+    one — a sharpened pass that reads `MRP 315.00` at 0.97 should beat the
+    original's `MRP 3l5.OO` at 0.62.
+
+    Lines the first pass never found are added outright. That is the main win:
+    a laser-printed batch code invisible to the original and legible after
+    contrast enhancement is new text, not a correction.
+    """
+    kept: list[dict[str, Any]] = list(primary)
+
+    for candidate in extra:
+        box = candidate.get("boundingBox")
+        if box is None:
+            continue
+
+        replaced = False
+
+        for index, existing in enumerate(kept):
+            existing_box = existing.get("boundingBox")
+            if not existing_box or _overlap(box, existing_box) < SAME_LINE_OVERLAP:
+                continue
+
+            # Same printed line, read twice. Keep whichever reading the model
+            # was surer of; where neither carries a score, keep what we had,
+            # because replacing a reading on no evidence is not an improvement.
+            if candidate.get("confidence", 0) > existing.get("confidence", 0):
+                kept[index] = candidate
+            replaced = True
+            break
+
+        if not replaced:
+            kept.append(candidate)
+
+    return kept
+
+
+def quality(lines: list[dict[str, Any]]) -> float:
+    """
+    How good a read looks, for choosing between passes.
+
+    Line count times mean confidence. Neither alone is enough: confidence on
+    its own prefers a pass that found three words perfectly over one that found
+    forty declarations well, and line count on its own prefers a pass that
+    found sixty fragments of noise.
+    """
+    if not lines:
+        return 0.0
+
+    scored = [line["confidence"] for line in lines if "confidence" in line]
+    mean = sum(scored) / len(scored) if scored else 0.5
+
+    return len(lines) * mean

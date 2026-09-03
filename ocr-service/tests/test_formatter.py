@@ -142,5 +142,74 @@ class TestMergePasses:
         assert formatter.merge_passes(primary, [{"text": "unplaced"}]) == primary
 
 
+
+class TestUnrotate:
+    """
+    Boxes found on a rotated pass have to come home.
+
+    A box left in the rotated frame is drawn on the stored photograph at ninety
+    degrees to the text it belongs to, which is worse than no box: it looks
+    authoritative and points at the wrong thing.
+    """
+
+    def test_maps_a_90_degree_box_back(self):
+        # Forward: (x, y) -> (height - 1 - y, x) for a clockwise quarter turn.
+        # A point at (10, 20) in a 200x100 original lands at (79, 10).
+        assert formatter.unrotate([[79, 10]], 90, 200, 100) == [[10, 20]]
+
+    def test_maps_a_180_degree_box_back(self):
+        assert formatter.unrotate([[189, 79]], 180, 200, 100) == [[10, 20]]
+
+    def test_maps_a_270_degree_box_back(self):
+        assert formatter.unrotate([[20, 189]], 270, 200, 100) == [[10, 20]]
+
+    def test_leaves_an_unrotated_box_alone(self):
+        assert formatter.unrotate([[10, 20]], 0, 200, 100) == [[10, 20]]
+
+    def test_survives_a_missing_polygon(self):
+        assert formatter.unrotate(None, 90, 200, 100) is None
+
+
+class TestMergeVariants:
+    def _line(self, text, confidence, x, y=0):
+        return {
+            "text": text,
+            "confidence": confidence,
+            "boundingBox": {"x": x, "y": y, "width": 100, "height": 30},
+        }
+
+    def test_prefers_the_more_confident_reading_of_the_same_line(self):
+        # Same printed line read twice through different enhancements. Unlike
+        # `merge_passes`, these scores are comparable — one recogniser, one
+        # image — so the surer reading wins.
+        original = [self._line("MRP 3l5.OO", 0.62, 0)]
+        sharpened = [self._line("MRP 315.00", 0.97, 2)]
+
+        merged = formatter.merge_variants(original, sharpened)
+
+        assert [entry["text"] for entry in merged] == ["MRP 315.00"]
+
+    def test_keeps_the_earlier_reading_when_the_variant_is_less_sure(self):
+        original = [self._line("MRP 315.00", 0.97, 0)]
+        worse = [self._line("MRP 3I5.OO", 0.41, 2)]
+
+        assert formatter.merge_variants(original, worse)[0]["text"] == "MRP 315.00"
+
+    def test_adds_a_line_no_earlier_pass_found(self):
+        # The main win: a laser-printed batch code invisible in the original and
+        # legible after contrast enhancement is new text, not a correction.
+        original = [self._line("MRP 315.00", 0.95, 0, 0)]
+        enhanced = [self._line("Batch XY7742", 0.88, 0, 400)]
+
+        merged = formatter.merge_variants(original, enhanced)
+
+        assert len(merged) == 2
+
+    def test_ignores_a_variant_line_with_no_geometry(self):
+        original = [self._line("MRP 315.00", 0.95, 0)]
+
+        assert formatter.merge_variants(original, [{"text": "unplaced"}]) == original
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

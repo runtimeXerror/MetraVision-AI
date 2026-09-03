@@ -87,7 +87,14 @@ from typing import Any
 os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 os.environ.setdefault("PADDLE_PDX_MODEL_SOURCE", "huggingface")
 
-from services.image_preprocessing import PreparedImage, enhance, prepare  # noqa: E402
+from services.image_preprocessing import (  # noqa: E402
+    PreparedImage,
+    enhance,
+    prepare,
+    rotate,
+    sharpen,
+    upscale,
+)
 from utils import formatter  # noqa: E402
 
 logger = logging.getLogger("ocr-service")
@@ -128,6 +135,47 @@ _VERSION_FALLBACKS: tuple[str | None, ...] = (None, "PP-OCRv5", "PP-OCRv4", "PP-
 # Filtering aggressively here would hide from the rule engine the very fact it
 # uses to route a check to manual review.
 DROP_BELOW_CONFIDENCE = float(os.getenv("OCR_MIN_CONFIDENCE", "0.30"))
+
+# ── When to look again ─────────────────────────────────────────────────────
+#
+# The trigger has to describe a *poor read*, not a *small label*.
+#
+# The first version multiplied line count by mean confidence and retried below
+# a fixed score. It was wrong in a way worth recording: a cosmetics label
+# carries eight declarations, so a flawless read scored 8 x 0.95 and tripped a
+# threshold meant for failures — every clean small label paid for three extra
+# inferences it did not need, and four photographs then ran past the backend's
+# timeout. Line count measures how much is printed on the package, which is not
+# evidence about how well it was read.
+#
+# So the signals below are about the reading itself: nothing found at all, a
+# suspiciously thin read, or readings the recogniser is not sure of.
+# Measured on this project's images, single pass:
+#
+#     a clean label                8 lines, mean 0.986-0.994
+#     a dark MRP crop, read well   3 lines, mean 0.979
+#     a tiny blurred crop, garbage 3 lines, mean 0.58   ("DO 099 TH HV")
+#
+# Mean confidence separates those cleanly and line count does not, which is why
+# a line-count rule was tried and removed: at "fewer than four lines is poor" a
+# close-up of an MRP sticker read at 0.979 still paid for three extra
+# inferences, and photographing just the MRP box is a case the capture flow
+# offers on purpose.
+POOR_MEAN_CONFIDENCE = float(os.getenv("OCR_RETRY_CONFIDENCE", "0.80"))
+
+
+def _looks_poor(lines: list[dict[str, Any]]) -> bool:
+    """Whether a reading is weak enough to be worth a second attempt."""
+    if not lines:
+        return True
+
+    scored = [line["confidence"] for line in lines if "confidence" in line]
+    if not scored:
+        # No scores at all is not evidence of a bad read, and re-reading every
+        # such image would be a permanent tax on any provider that reports none.
+        return False
+
+    return sum(scored) / len(scored) < POOR_MEAN_CONFIDENCE
 
 _engines: dict[str, "Engine"] = {}
 _lock = threading.Lock()
@@ -355,6 +403,102 @@ def _predict(engine: Engine, image: PreparedImage) -> list[dict[str, Any]]:
     return lines
 
 
+def _extra_passes(
+    engine: "Engine",
+    image: PreparedImage,
+    lines: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """
+    Reads a difficult image again, differently, and keeps the best of each.
+
+    Every variant is an *addition*. The original reading is never discarded —
+    `formatter.merge_variants` keeps whichever reading of a given printed line
+    the recogniser was surer of, and adds lines no earlier pass found at all.
+    So a transform that destroys faint print can only fail to help; it cannot
+    take a declaration away. That property is what makes it safe to try
+    enhancements the module header otherwise warns against.
+
+    Order is deliberate — contrast first, because the failure this most often
+    fixes is a dark MRP or batch box on a dark background, and it is also the
+    cheapest.
+    """
+    used: list[str] = []
+
+    for name, variant in (
+        ("clahe", enhance(image)),
+        ("sharpen", sharpen(image)),
+        ("upscale", upscale(image)),
+    ):
+        # Recorded before the attempt, not after it succeeds. `passes` is meant
+        # to answer "what did the system try on this image" — which is the
+        # question asked when a declaration was missed, and a list of only the
+        # passes that happened to help cannot answer it.
+        used.append(name)
+
+        try:
+            found = _predict(engine, variant)
+        except Exception:  # noqa: BLE001
+            # One bad variant must not lose the reading we already have.
+            logger.warning("variant %s failed; keeping earlier passes", name, exc_info=True)
+            continue
+
+        if not found:
+            continue
+
+        before = len(lines)
+        lines = formatter.merge_variants(lines, found)
+        logger.info("variant %s added %d line(s)", name, len(lines) - before)
+
+        # Enough is enough: once the read looks healthy, stop spending time.
+        if not _looks_poor(lines):
+            break
+
+    # ── Rotation, last ─────────────────────────────────────────────────────
+    #
+    # Only when the image still reads as essentially nothing, because this is
+    # the expensive branch — three more inferences — and it is only ever the
+    # answer for one specific failure: a photograph whose EXIF orientation was
+    # missing or wrong, so the entire label is on its side.
+    # Rotation is the expensive branch — three more inferences — so it is
+    # reserved for the one failure it fixes: an image that read as nothing at
+    # all because the whole label is on its side. A few garbled lines are a
+    # recognition problem, not an orientation one, and rotating will not help.
+    if not lines:
+        for degrees in (90, 180, 270):
+            used.append(f"rotate-{degrees}")
+            try:
+                found = _predict(engine, rotate(image, degrees))
+            except Exception:  # noqa: BLE001
+                logger.warning("rotation %d failed", degrees, exc_info=True)
+                continue
+
+            if formatter.quality(found) <= formatter.quality(lines):
+                continue
+
+            # Boxes came back in the rotated frame. Mapped home before anything
+            # downstream draws them on the stored photograph.
+            for line in found:
+                polygon = formatter.unrotate(
+                    line.get("polygon"), degrees, image.original_width, image.original_height
+                )
+                if polygon:
+                    line["polygon"] = polygon
+                    xs = [point[0] for point in polygon]
+                    ys = [point[1] for point in polygon]
+                    line["boundingBox"] = {
+                        "x": min(xs),
+                        "y": min(ys),
+                        "width": max(xs) - min(xs),
+                        "height": max(ys) - min(ys),
+                    }
+
+            lines = found
+            logger.info("image read best at %d degrees", degrees)
+            break
+
+    return lines, used
+
+
 def read(data: bytes) -> dict[str, Any]:
     """
     The whole read: decode → correct → detect + recognise → structure.
@@ -379,13 +523,19 @@ def read(data: bytes) -> dict[str, Any]:
     lines = _predict(engine, image)
     languages = [PRIMARY_LANG]
     models = [engine.label]
+    passes = ["original"]
 
-    # The retry. Only reached when the first pass found nothing at all, so the
-    # contrast pass can only add readings, never displace good ones.
-    if not lines:
-        logger.info("first pass found no text; retrying with contrast enhancement")
-        image = enhance(image)
-        lines = _predict(engine, image)
+    # ── Extra passes, when the first one looks thin ────────────────────────
+    #
+    # Conditional rather than always-on, and the reason is the clock: an
+    # inspection is up to four photographs read one after another, and the
+    # backend gives up at OCR_TIMEOUT_MS. Reading every image four ways would
+    # turn a nine-second scan into a timeout. A label that read cleanly does
+    # not need a second opinion; one that read thinly is exactly the curved
+    # bottle or dark MRP box these passes exist for.
+    if _looks_poor(lines):
+        lines, extra = _extra_passes(engine, image, lines)
+        passes.extend(extra)
 
     if SECONDARY_LANG and lines:
         try:
@@ -417,6 +567,7 @@ def read(data: bytes) -> dict[str, Any]:
             "models": models,
             "languages": languages,
             "preprocessing": image.steps,
+            "passes": passes,
             "lowResolution": image.low_resolution,
             "lineCount": len(lines),
             "meanConfidence": round(sum(scored) / len(scored), 4) if scored else None,
