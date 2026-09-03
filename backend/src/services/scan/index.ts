@@ -17,3 +17,12 @@ export {
   toLegacyStatus,
   toLegacyViolations,
 } from './legacyProjection';
+
+export {
+  reevaluateWithVerifiedFields,
+  applyVerifications,
+  type FieldVerification,
+  type ReevaluationInput,
+  type ReevaluationOutcome,
+  type VerificationAction,
+} from './verifiedReevaluation';

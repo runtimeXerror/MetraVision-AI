@@ -61,6 +61,14 @@ export interface ExtractedFieldRecord {
   matchedText?: string;
   /** True when a character substitution was needed to read the value. */
   repaired?: boolean;
+  /**
+   * Set only once an inspector has ruled on this declaration with the package
+   * in front of them. Absent means nobody has looked yet — which is not the
+   * same as "nothing is wrong", and the engine treats it accordingly.
+   *
+   * Written by `verifiedReevaluation`; the extraction stage never sets it.
+   */
+  verification?: 'ACCEPTED' | 'EDITED' | 'MARKED_UNAVAILABLE';
 }
 
 /**
@@ -118,6 +126,27 @@ function evidenceFor(line: Line, space: { width: number; height: number } | unde
   }
   if (typeof line.region?.confidence === 'number') {
     reference.confidence = line.region.confidence;
+
+    /**
+     * Legibility, for the readability checks in `evidenceValidator`.
+     *
+     * The recogniser's confidence is a *proxy* and it is worth being precise
+     * about what it is not: it measures how sure the model is of the
+     * characters, which conflates a badly printed declaration with a badly
+     * photographed one, and with a font the model simply finds unusual. It is
+     * evidence that a declaration may be hard to read. It is not a measurement
+     * of print quality.
+     *
+     * Supplying it anyway is right, because the alternative is that every
+     * readability check stays INSUFFICIENT_EVIDENCE for ever and the system
+     * silently does not perform a check the rules require. What keeps it
+     * honest is that the same number is the field's confidence, so a weak
+     * reading fails `thresholds.sufficient` in `DecisionEngine` and the check
+     * becomes REVIEW_REQUIRED — a question for the inspector standing in front
+     * of the package, never a violation on its own. That is exactly the rule
+     * the brief sets: low OCR confidence must not become legal non-compliance.
+     */
+    reference.measurements = { legibility: line.region.confidence };
   }
 
   return reference;

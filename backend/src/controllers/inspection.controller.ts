@@ -6,6 +6,9 @@ import { query } from '../middleware/validate';
 import { Inspection, type InspectionAttrs, type InspectionDocument } from '../models/Inspection';
 import { analyseInspection } from '../services/analysisService';
 import { evaluateCompliance, needsReview } from '../services/complianceService';
+import type { ExtractionResult } from '../services/extraction';
+import type { AggregateOCRResult } from '../services/ocr';
+import { reevaluateWithVerifiedFields, toLegacyStatus } from '../services/scan';
 import type { ProductCategory, StatsDTO } from '../types/domain';
 import { ApiError } from '../utils/ApiError';
 import { nextInspectionReference } from '../utils/referenceId';
@@ -287,6 +290,102 @@ export async function analyzeInspection(req: Request, res: Response): Promise<Re
 
 /* ── Review ───────────────────────────────────────────────────────────────── */
 
+/**
+ * Re-runs the Legal Metrology rule engine over the inspector's determinations.
+ *
+ * Rebuilds the extraction from what the scan stored rather than re-reading the
+ * photographs: OCR is the expensive stage, the images have not changed, and
+ * re-running it would produce a *different* reading to attribute the
+ * inspector's corrections to. The stored extraction is the one they corrected.
+ *
+ * The original scan is not overwritten. `scan.extraction` keeps what the camera
+ * read; `scan.verified` records what the inspector concluded and what the
+ * engine made of it, so the report can show both and the audit trail survives.
+ */
+async function reevaluateFromScan(
+  inspection: InspectionDocument,
+  decisions: ReviewDecision[],
+  now: Date,
+): Promise<void> {
+  const stored = inspection.scan!;
+
+  const extraction = {
+    engine: stored.extraction.engine,
+    engineVersion: stored.extraction.engineVersion,
+    fields: stored.extraction.fields as unknown as ExtractionResult['fields'],
+    informational: stored.extraction.informational as unknown as ExtractionResult['informational'],
+    contextSignals: stored.extraction.contextSignals as unknown as ExtractionResult['contextSignals'],
+    unclaimedLines: stored.extraction.unclaimedLines,
+    warnings: stored.extraction.warnings,
+    processingTimeMs: stored.extraction.processingMs,
+    lineCount: stored.ocr.lineCount,
+  } satisfies ExtractionResult;
+
+  const regions = stored.ocr.regions as unknown as AggregateOCRResult['regions'];
+
+  const ocr: AggregateOCRResult = {
+    provider: stored.ocr.provider,
+    providerVersion: stored.ocr.providerVersion,
+    rawText: stored.ocr.rawText,
+    regions,
+    // Rebuilt per image so `captureCompleteness` still counts photographs, which
+    // is what the engine's absence policy is keyed on.
+    perImage: stored.ocr.imageIds.map((imageId) => ({
+      rawText: '',
+      regions: regions.filter((region) => region.imageId === imageId),
+      provider: stored.ocr.provider,
+      providerVersion: stored.ocr.providerVersion,
+      confidenceAvailable: stored.ocr.confidenceAvailable,
+      imageId,
+    })),
+    processingTimeMs: stored.ocr.processingMs,
+    confidenceAvailable: stored.ocr.confidenceAvailable,
+  };
+
+  const outcome = await reevaluateWithVerifiedFields({
+    inspectionId: inspection.inspectionId,
+    inspectionDate: stored.legal.inspectionDate,
+    productContext: {
+      ...(inspection.productCategory ? { category: inspection.productCategory } : {}),
+    },
+    extraction,
+    ocr,
+    imageIds: stored.ocr.imageIds,
+    verifications: decisions.map((decision) => ({
+      field: decision.fieldName,
+      action: decision.action,
+      value: decision.value,
+    })),
+  });
+
+  inspection.scan = {
+    ...stored,
+    legal: {
+      ...stored.legal,
+      status: outcome.compliance.status,
+      summary: outcome.compliance.summary as unknown as Record<string, unknown>,
+      checks: outcome.compliance.checks,
+      applicableRules: outcome.compliance.applicableRules,
+      warnings: outcome.compliance.warnings,
+      issues: outcome.issues,
+      issueSummary: outcome.issueSummary as unknown as Record<string, unknown>,
+      evaluatedAt: now,
+    },
+    report: {
+      reportId: outcome.report.reportId,
+      generatedAt: new Date(outcome.report.generatedAt),
+      reportVersion: outcome.report.reportVersion,
+    },
+  };
+
+  // The engine's five states collapse onto the workflow's three, the same way
+  // the scan route does it: INSUFFICIENT_EVIDENCE and NOT_APPLICABLE both mean
+  // a person still has to look, and neither may be shown as a pass.
+  inspection.status = toLegacyStatus(outcome.compliance.status);
+  inspection.markModified('scan');
+}
+
+
 interface ReviewDecision {
   fieldName: string;
   action: 'ACCEPTED' | 'EDITED' | 'MARKED_UNAVAILABLE';
@@ -334,8 +433,29 @@ export async function reviewInspection(req: Request, res: Response): Promise<Res
 
   inspection.lastReviewedAt = now;
 
-  // Re-evaluate: a correction can turn a REVIEW_REQUIRED into a COMPLIANT, and
-  // marking a mandatory declaration unavailable turns it into a violation.
+  /**
+   * Re-evaluate against the Legal Metrology rule engine.
+   *
+   * This is the branch that matters. An inspection produced by the scan
+   * pipeline carries the OCR, the extraction and the rule-set version it was
+   * evaluated under, so the inspector's determinations can be layered onto
+   * that extraction and run through the *same* engine — the same rulebook,
+   * the same version, the same evidence policy.
+   *
+   * Before this, every correction was re-checked by the older scripted
+   * analyser below, which knows nothing about rule versions or exceptions.
+   * The report an inspector signed could therefore be produced by a different
+   * set of rules from the one the scan had applied minutes earlier.
+   *
+   * The fallback is kept for inspections created by the legacy `/analyze`
+   * route, which have no scan record to re-evaluate.
+   */
+  if (inspection.scan) {
+    await reevaluateFromScan(inspection, decisions, now);
+    await inspection.save();
+    return ok(res, inspection.toDTO(), 'Review recorded');
+  }
+
   const compliance = evaluateCompliance({
     fields: inspection.extractedFields.map((field) => ({
       name: field.name,

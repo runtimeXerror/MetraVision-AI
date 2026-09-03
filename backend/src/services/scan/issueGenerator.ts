@@ -96,7 +96,17 @@ const TITLE_BY_REASON: Record<string, string> = {
   VALUE_OUT_OF_RANGE: 'Declared value outside the permitted range',
   UNIT_NOT_PERMITTED: 'Unit of measure is not a standard unit',
   CROSS_FIELD_INCOMPLETE: 'A related set of declarations is incomplete',
-  MEASUREMENT_NOT_AVAILABLE: 'Cannot be assessed from a photograph in this version',
+  /**
+   * Font size, in millimetres.
+   *
+   * Not a limitation of the reader but of the photograph: a bounding box is in
+   * pixels, and converting pixels to millimetres needs the physical scale of
+   * the package, which no single image carries. Guessing it would produce a
+   * measurement precise enough to look authoritative and wrong often enough to
+   * fail a compliant package on Table-I, so the check is handed to the person
+   * who is holding the package and can put a rule against it.
+   */
+  MEASUREMENT_NOT_AVAILABLE: 'Font size requires inspector verification against the package',
   CAPTURE_INCOMPLETE: 'Not enough of the package was captured to assess this',
   NO_EVIDENCE_SUPPLIED: 'No evidence was captured for this requirement',
 };
