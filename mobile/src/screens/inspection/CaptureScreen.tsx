@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useState, useEffect } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+
+import { confirm } from '../../components/Dialog';
 
 import { ImageThumb } from '../../components/domain';
 import { ActionBar, Body, Screen, ScreenHeader, StepIndicator } from '../../components/layout';
@@ -58,21 +60,16 @@ export function CaptureScreen() {
   );
 
   const confirmDelete = (image: ProductImage) => {
-    Alert.alert(
-      'Delete this image?',
-      `The ${imageSideLabels[image.side].toLowerCase()} capture will be removed.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            removeImage(image.id);
-            setPreview(null);
-          },
-        },
-      ],
-    );
+    void confirm({
+      title: 'Delete this image?',
+      message: `The ${imageSideLabels[image.side].toLowerCase()} capture will be removed.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    }).then((confirmed) => {
+      if (!confirmed) return;
+      removeImage(image.id);
+      setPreview(null);
+    });
   };
 
   const onContinue = () => {

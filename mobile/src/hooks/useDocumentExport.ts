@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert } from 'react-native';
+
+import { notify } from '../components/Dialog';
 
 import type { ExportOption } from '../components/ExportSheet';
 import { toApiError } from '../services/api';
@@ -35,7 +36,10 @@ export function useDocumentExport(resolve: () => DocumentSource | null) {
   const run = useCallback(async (action: (source: DocumentSource) => Promise<SaveOutcome>) => {
     const source = resolveRef.current();
     if (!source) {
-      Alert.alert('Nothing to export yet', 'The record is still loading. Try again in a moment.');
+      void notify({
+        title: 'Nothing to export yet',
+        message: 'The record is still loading. Try again in a moment.',
+      });
       return;
     }
 
@@ -44,18 +48,23 @@ export function useDocumentExport(resolve: () => DocumentSource | null) {
       const outcome = await action(source);
 
       if (outcome.status === 'saved') {
-        Alert.alert('Saved to device', `${outcome.fileName} was saved to ${outcome.folder}.`);
+        void notify({
+          title: 'Saved to device',
+          message: `${outcome.fileName} was saved to ${outcome.folder}.`,
+          tone: 'success',
+        });
       } else if (outcome.status === 'app_only') {
-        Alert.alert(
-          'PDF ready',
-          `${outcome.fileName} was produced, but this device offers no way to save or share it.`,
-        );
+        void notify({
+          title: 'PDF ready',
+          message: `${outcome.fileName} was produced, but this device offers no way to save or share it.`,
+          tone: 'warning',
+        });
       }
       // A completed share needs no alert — the share sheet was its own
       // confirmation, and on Android an alert would land behind the chooser.
       // A cancellation needs none either: the officer chose to back out.
     } catch (error) {
-      Alert.alert('Download failed', toApiError(error).message);
+      void notify({ title: 'Download failed', message: toApiError(error).message, tone: 'danger' });
     } finally {
       setDownloading(false);
     }

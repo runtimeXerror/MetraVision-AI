@@ -17,6 +17,7 @@ import { ResultScreen } from '../screens/inspection/ResultScreen';
 import { ReviewScreen } from '../screens/inspection/ReviewScreen';
 import { SuccessScreen } from '../screens/inspection/SuccessScreen';
 import { useAuthStore } from '../store/authStore';
+import { DialogHost } from '../components/Dialog';
 import { useDraftStore, startDraftAutosave } from '../store/draftStore';
 import { useHistoryStore } from '../store/historyStore';
 
@@ -102,7 +103,7 @@ export function RootNavigator() {
   const refreshHistory = useHistoryStore((state) => state.refreshAll);
   const resetHistory = useHistoryStore((state) => state.reset);
 
-  const checkDraft = useDraftStore((state) => state.check);
+  const discardStaleDraft = useDraftStore((state) => state.discardStale);
   const resetDraft = useDraftStore((state) => state.reset);
 
   useEffect(() => {
@@ -129,13 +130,19 @@ export function RootNavigator() {
       return;
     }
 
-    void checkDraft(inspector.id);
+    // Anything left by a previous session is thrown away rather than offered:
+    // an inspection interrupted by the app closing is started again from
+    // scratch. See the note at the top of `draftStore`.
+    void discardStaleDraft();
     return startDraftAutosave(inspector.id);
-  }, [inspector, checkDraft, resetDraft]);
+  }, [inspector, discardStaleDraft, resetDraft]);
 
   return (
     <NavigationContainer theme={navigationTheme}>
       {restoring ? <RestoringSplash /> : session ? <SignedInNavigator /> : <AuthNavigator />}
+      {/* One host for every dialog in the app. Mounted outside the navigator so
+          a confirmation survives the screen that raised it navigating away. */}
+      <DialogHost />
     </NavigationContainer>
   );
 }

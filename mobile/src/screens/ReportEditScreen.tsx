@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+
+import { confirm } from '../components/Dialog';
 
 import { Input, Select } from '../components/forms';
 import { ActionBar, Body, Notice, Screen, ScreenHeader } from '../components/layout';
@@ -114,21 +116,18 @@ export function ReportEditScreen({ route, navigation }: RootScreenProps<'ReportE
   };
 
   const onDiscard = () => {
-    Alert.alert(
-      'Discard amendments?',
-      'The report will be issued exactly as it was recorded. Your corrections will be removed.',
-      [
-        { text: 'Keep editing', style: 'cancel' },
-        {
-          text: 'Discard',
-          style: 'destructive',
-          onPress: () => {
-            clearAmendment(inspectionId);
-            navigation.goBack();
-          },
-        },
-      ],
-    );
+    void confirm({
+      title: 'Discard amendments?',
+      message:
+        'The report will be issued exactly as it was recorded. Your corrections will be removed.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      destructive: true,
+    }).then((confirmed) => {
+      if (!confirmed) return;
+      clearAmendment(inspectionId);
+      navigation.goBack();
+    });
   };
 
   return (

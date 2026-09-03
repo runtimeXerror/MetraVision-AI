@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, RefreshControl, StyleSheet, Switch, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, StyleSheet, Switch, View } from 'react-native';
+
+import { confirm, notify } from '../components/Dialog';
 
 import { Avatar } from '../components/domain';
 import { Input } from '../components/forms';
@@ -35,14 +37,18 @@ export function ProfileScreen() {
   }, [refreshProfile]);
 
   const confirmLogout = () => {
-    Alert.alert('Sign out?', 'You will need your credentials to sign back in.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void logout() },
-    ]);
+    void confirm({
+      title: 'Sign out?',
+      message: 'You will need your credentials to sign back in.',
+      confirmLabel: 'Sign out',
+      destructive: true,
+    }).then((confirmed) => {
+      if (confirmed) void logout();
+    });
   };
 
   const notImplemented = (feature: string) => {
-    Alert.alert(feature, 'This setting is not part of the current release.');
+    void notify({ title: feature, message: 'This setting is not part of the current release.' });
   };
 
   if (!inspector) {
@@ -176,10 +182,11 @@ export function ProfileScreen() {
             label="Offline queue"
             value={`${offlineQueue.size()} pending`}
             onPress={() =>
-              Alert.alert(
-                'Offline queue',
-                'Inspections are submitted to the server as you work, so nothing is held here. Offline capture with deferred sync is a later addition.',
-              )
+              void notify({
+                title: 'Offline queue',
+                message:
+                  'Inspections are submitted to the server as you work, so nothing is held here. Offline capture with deferred sync is a later addition.',
+              })
             }
           />
           <View style={styles.hairline} />
@@ -458,9 +465,12 @@ function ChangePasswordSheet({ visible, onClose }: { visible: boolean; onClose: 
     try {
       await changePassword(form.current, form.next);
       onClose();
-      Alert.alert('Password changed', 'Sign in again with your new password.', [
-        { text: 'OK', onPress: () => void logout() },
-      ]);
+      await notify({
+        title: 'Password changed',
+        message: 'Sign in again with your new password.',
+        tone: 'success',
+      });
+      void logout();
     } catch (error) {
       setFormError(toApiError(error).message);
     } finally {

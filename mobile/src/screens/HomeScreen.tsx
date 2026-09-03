@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useCallback } from 'react';
-import { Alert, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 
 import { GovHeader } from '../components/branding';
 import { InspectionCard, StatTile, StatTileRowSkeleton } from '../components/domain';
@@ -18,7 +18,6 @@ import {
 } from '../components/ui';
 import { colors, radius, shadow, spacing } from '../constants/theme';
 import { useAuthStore } from '../store/authStore';
-import { useDraftStore } from '../store/draftStore';
 import { useHistoryStore, type StatusFilter } from '../store/historyStore';
 import { useAnalysisStore } from '../store/analysisStore';
 import { useImageStore } from '../store/imageStore';
@@ -44,57 +43,20 @@ export function HomeScreen() {
   const resetImages = useImageStore((state) => state.reset);
   const resetAnalysis = useAnalysisStore((state) => state.reset);
 
-  const pendingDraft = useDraftStore((state) => state.pending);
-  const resumeDraft = useDraftStore((state) => state.resume);
-  const discardDraft = useDraftStore((state) => state.discard);
-
   /**
    * Starting an inspection clears every per-inspection store, then hands over to
    * the Inspect tab. Clearing here rather than on the details screen means a
-   * half-finished draft can never leak into the next inspection.
+   * half-finished capture can never leak into the next inspection.
+   *
+   * There is no longer a draft to ask about: a capture interrupted by the app
+   * closing is discarded at launch, so this always starts from an empty form.
    */
   const startInspection = useCallback(() => {
-    /**
-     * An unfinished capture is not overwritten without being asked about.
-     *
-     * Tapping "Start New Inspection" with a draft on record would otherwise
-     * reset the stores and the autosave would immediately write the empty form
-     * over the officer's saved work — losing it to the very action they took to
-     * begin the next one.
-     */
-    if (pendingDraft) {
-      Alert.alert(
-        'Unfinished inspection',
-        `${pendingDraft.snapshot.details.businessName || 'A capture'} was left unfinished. Continue it, or start a new one and discard it?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Discard and start',
-            style: 'destructive',
-            onPress: () => {
-              void discardDraft().then(() => navigation.navigate('Tabs', { screen: 'Inspect' }));
-            },
-          },
-          {
-            text: 'Continue it',
-            onPress: () => {
-              const step = resumeDraft();
-              if (step) navigation.navigate(step);
-            },
-          },
-        ],
-      );
-      return;
-    }
-
     resetInspection();
     resetImages();
     resetAnalysis();
     navigation.navigate('Tabs', { screen: 'Inspect' });
   }, [
-    pendingDraft,
-    discardDraft,
-    resumeDraft,
     resetInspection,
     resetImages,
     resetAnalysis,

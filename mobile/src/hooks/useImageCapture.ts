@@ -1,6 +1,8 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useState } from 'react';
-import { Alert, Linking } from 'react-native';
+import { Linking } from 'react-native';
+
+import { confirm, dialog } from '../components/Dialog';
 
 import type { ImageSide, ImageSource } from '../types';
 import { useImageStore } from '../store/imageStore';
@@ -23,14 +25,16 @@ interface CaptureResult {
 
 function explainPermission(kind: 'camera' | 'gallery'): void {
   const subject = kind === 'camera' ? 'Camera access' : 'Photo library access';
-  Alert.alert(
-    `${subject} is required`,
-    `Enable ${kind === 'camera' ? 'the camera' : 'photo access'} for LM Compliance Scanner in Settings to attach label photographs.`,
-    [
-      { text: 'Not now', style: 'cancel' },
-      { text: 'Open Settings', onPress: () => void Linking.openSettings() },
-    ],
-  );
+
+  void confirm({
+    title: `${subject} is required`,
+    message: `Enable ${kind === 'camera' ? 'the camera' : 'photo access'} for LM Compliance Scanner in Settings to attach label photographs.`,
+    confirmLabel: 'Open Settings',
+    cancelLabel: 'Not now',
+    tone: 'warning',
+  }).then((open) => {
+    if (open) void Linking.openSettings();
+  });
 }
 
 /**
@@ -46,21 +50,21 @@ function explainPermission(kind: 'camera' | 'gallery'): void {
  * the cancel handling stay in one place; that is the same reason
  * `explainPermission` is here.
  */
-function askSource(): Promise<ImageSource | null> {
-  return new Promise((resolve) => {
-    Alert.alert(
-      'Replace this photograph',
-      'Take a new photograph, or upload one already on this device.',
-      [
-        { text: 'Take photo', onPress: () => resolve('camera') },
-        { text: 'Upload from gallery', onPress: () => resolve('gallery') },
-        // `onDismiss` covers an Android back-press, where no button fires and
-        // the promise would otherwise never settle and leave the button stuck.
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
-      ],
-      { cancelable: true, onDismiss: () => resolve(null) },
-    );
+async function askSource(): Promise<ImageSource | null> {
+  const choice = await dialog<ImageSource | null>({
+    title: 'Replace this photograph',
+    message: 'Take a new photograph, or upload one already on this device.',
+    // Dismissing — the backdrop, or Android's back button — resolves to null
+    // like Cancel, so the caller always settles and the button never sticks.
+    dismissValue: null,
+    actions: [
+      { label: 'Take photo', value: 'camera' },
+      { label: 'Upload from gallery', value: 'gallery' },
+      { label: 'Cancel', value: null, style: 'cancel' },
+    ],
   });
+
+  return choice ?? null;
 }
 
 export function useImageCapture() {
