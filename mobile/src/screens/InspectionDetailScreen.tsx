@@ -5,17 +5,20 @@ import { StyleSheet, View } from 'react-native';
 import {
   CheckRow,
   ComplianceBadge,
+  ComplianceTally,
   ExtractedFieldCard,
   ImageThumb,
   VerdictPanel,
   ViolationCard,
 } from '../components/domain';
+import { ImageViewer } from '../components/ImageViewer';
 import { ActionBar, Body, Screen, ScreenHeader } from '../components/layout';
 import { Badge, Button, Card, ChipBar, EmptyState, LoadingState, ErrorState, Row, SectionHeader, Txt } from '../components/ui';
 import { inspectionStatusLabels, inspectionStatusTones, productCategoryLabels } from '../constants/labels';
 import { colors, spacing } from '../constants/theme';
 import { useAsync } from '../hooks/useAsync';
-import { getInspection } from '../services/inspectionService';
+import { OfflineBar } from '../components/offline';
+import { loadInspection } from '../services/offlineReads';
 import type { RootScreenProps } from '../navigation/types';
 import { formatConfidence, formatDateTime, formatDuration } from '../utils/format';
 
@@ -26,7 +29,15 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
   const { inspectionId } = route.params;
   const [tab, setTab] = useState<Tab>('summary');
 
-  const fetch = useCallback(() => getInspection(inspectionId), [inspectionId]);
+  // Which photograph the full-screen viewer opens on. `null` is closed —
+  // kept as one piece of state rather than a boolean plus an index, so the
+  // two can never disagree about what is being shown.
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+
+  // Read through the device: a record the officer has opened before opens
+  // again with no signal, which is the situation this screen is most often
+  // needed in — standing in the premises, checking what was found last time.
+  const fetch = useCallback(() => loadInspection(inspectionId), [inspectionId]);
   const { state, run } = useAsync(fetch);
 
   if (state.status === 'loading' || state.status === 'idle') {
@@ -45,10 +56,14 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
       <Screen>
         <ScreenHeader title="Inspection" onBack={() => navigation.goBack()} />
         <Body>
+          {/* Says *why* there is nothing here, which the error alone does not:
+              this record has never been opened on this device, so there was no
+              saved copy to fall back to. */}
+          <OfflineBar style={{ marginBottom: spacing.md }} />
           <Card>
             <ErrorState
               message={state.error.message}
-              onRetry={state.error.retryable ? () => void run() : undefined}
+              onRetry={() => void run()}
             />
           </Card>
         </Body>
@@ -56,7 +71,7 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
     );
   }
 
-  const inspection = state.data;
+  const { data: inspection, savedAt } = state.data;
   const analysis = inspection.analysis;
 
   const tabs: Array<{ value: Tab; label: string; count?: number }> = [
@@ -80,12 +95,20 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
       />
 
       <Body>
+        <OfflineBar savedAt={savedAt} style={{ marginBottom: spacing.md }} />
+
         {analysis ? (
-          <VerdictPanel
-            status={analysis.compliance.status}
-            score={analysis.compliance.score}
-            ruleSetLabel={analysis.compliance.ruleSetLabel}
-          />
+          <>
+            <VerdictPanel
+              status={analysis.compliance.status}
+              score={analysis.compliance.score}
+              ruleSetLabel={analysis.compliance.ruleSetLabel}
+            />
+            {/* How much was examined to reach that verdict. See the note at
+                `ComplianceTally` — the panel above says what the package is,
+                this says how much of it was read. */}
+            <ComplianceTally analysis={analysis} />
+          </>
         ) : (
           <Card>
             <EmptyState
@@ -137,25 +160,39 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
                     <DetailRow label="Finalized" value={formatDateTime(inspection.finalizedAt)} />
                   </>
                 ) : null}
-              </Card>
+                {analysis ? (
+                  <>
+                    <View style={styles.hairline} />
+                    <DetailRow label="Processing time" value={formatDuration(analysis.processingMs)} />
+                  </>
+                ) : null}
 
-              {analysis ? (
-                <Card style={{ marginTop: spacing.md }}>
-                  <Txt variant="heading" style={{ marginBottom: spacing.md }}>
-                    Analysis
+                {/* ── WHAT USED TO BE A SECOND CARD ──────────────────────
+                    An "Analysis" card sat below this one carrying four rows:
+                    engine, engine version, mean confidence and rule set. Three
+                    of the four were already on the screen — the rule set is
+                    named in the verdict panel above, and the confidence the
+                    officer can act on is per-declaration, on the Extracted
+                    tab, not as one average across a label. The card's real
+                    content was the processing time, which is now a row of the
+                    record it describes.
+
+                    The engine and its version stay, because they are the
+                    provenance of a finding somebody may be asked to defend —
+                    but as a footnote, which is the weight they carry. */}
+                {analysis ? (
+                  <Txt variant="caption" color={colors.textFaint} style={{ marginTop: spacing.md }}>
+                    Read by {analysis.engine} · {analysis.engineVersion} ·{' '}
+                    {formatConfidence(analysis.meanConfidence)} mean confidence
                   </Txt>
-                  <DetailRow label="Engine" value={`${analysis.engine} · ${analysis.engineVersion}`} />
-                  <View style={styles.hairline} />
-                  <DetailRow label="Mean confidence" value={formatConfidence(analysis.meanConfidence)} />
-                  <View style={styles.hairline} />
-                  <DetailRow label="Processing time" value={formatDuration(analysis.processingMs)} />
-                  <View style={styles.hairline} />
-                  <DetailRow label="Rule set" value={analysis.compliance.ruleSetLabel} />
-                </Card>
-              ) : null}
+                ) : null}
+              </Card>
 
               <SectionHeader
                 title={`Images (${inspection.images.length})`}
+                subtitle={
+                  inspection.images.length > 0 ? 'Tap a photograph to read the label' : undefined
+                }
                 style={{ marginTop: spacing.xl }}
               />
               {inspection.images.length === 0 ? (
@@ -166,8 +203,13 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
                 </Card>
               ) : (
                 <Row gap={spacing.md} wrap>
-                  {inspection.images.map((image) => (
-                    <ImageThumb key={image.id} image={image} size={72} />
+                  {inspection.images.map((image, position) => (
+                    <ImageThumb
+                      key={image.id}
+                      image={image}
+                      size={84}
+                      onPress={() => setViewerIndex(position)}
+                    />
                   ))}
                 </Row>
               )}
@@ -211,8 +253,8 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
             )
           ) : tab === 'issues' ? (
             analysis && analysis.compliance.violations.length > 0 ? (
-              analysis.compliance.violations.map((violation) => (
-                <ViolationCard key={violation.id} violation={violation} />
+              analysis.compliance.violations.map((violation, position) => (
+                <ViolationCard key={violation.id} violation={violation} index={position + 1} />
               ))
             ) : (
               <Card>
@@ -229,6 +271,7 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
                 <View key={check.code}>
                   {index > 0 ? <View style={styles.hairline} /> : null}
                   <CheckRow
+                    index={index + 1}
                     title={check.title}
                     ruleReference={check.ruleReference}
                     result={check.result}
@@ -263,6 +306,16 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
           />
         </Row>
       </ActionBar>
+
+      {/* Outside `Body`, so it covers the action bar too — a viewer with the
+          screen's own buttons showing under it reads as a panel, not as the
+          photograph being examined. */}
+      <ImageViewer
+        images={inspection.images}
+        startIndex={viewerIndex ?? 0}
+        visible={viewerIndex !== null}
+        onClose={() => setViewerIndex(null)}
+      />
     </Screen>
   );
 }

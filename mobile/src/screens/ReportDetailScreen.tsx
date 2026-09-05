@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { DepartmentMark } from '../components/branding';
 import { ExportSheet } from '../components/ExportSheet';
-import { ComplianceBadge, ImageThumb, VerdictPanel } from '../components/domain';
+import { ComplianceBadge, ComplianceTally, ImageThumb, VerdictPanel } from '../components/domain';
+import { ImageViewer } from '../components/ImageViewer';
 import { ActionBar, Body, Notice, Screen, ScreenHeader } from '../components/layout';
 import { Button, Card, EmptyState, ErrorState, LoadingState, Row, SectionHeader, Txt } from '../components/ui';
 import { LETTERHEAD } from '../constants/identity';
@@ -12,7 +13,9 @@ import { productCategoryLabels, severityLabels } from '../constants/labels';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAsync } from '../hooks/useAsync';
 import { useDocumentExport } from '../hooks/useDocumentExport';
-import { getReport, reportDocument } from '../services/reportService';
+import { OfflineBar } from '../components/offline';
+import { loadReport } from '../services/offlineReads';
+import { reportDocument } from '../services/reportService';
 import { effectiveValue } from '../store/analysisStore';
 import { useReportDraftStore } from '../store/reportDraftStore';
 import type { RootScreenProps } from '../navigation/types';
@@ -27,7 +30,19 @@ import { formatDateTime } from '../utils/format';
 export function ReportDetailScreen({ route, navigation }: RootScreenProps<'ReportDetail'>) {
   const { inspectionId } = route.params;
 
-  const fetch = useCallback(() => getReport(inspectionId), [inspectionId]);
+  /** Which evidence photograph the full-screen viewer opens on; `null` is closed. */
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+
+  /**
+   * Read through the device.
+   *
+   * The report is the document an officer holds up to a dealer, and the
+   * backend already builds it as a snapshot taken at issue time — so keeping a
+   * copy on the phone reproduces the document that was issued rather than a
+   * re-render of a record that has moved on. It is the single most valuable
+   * thing in this app to have available with no signal.
+   */
+  const fetch = useCallback(() => loadReport(inspectionId), [inspectionId]);
   const { state, run } = useAsync(fetch);
 
   // Resolved lazily from the loaded report, so the Export button can sit in the
@@ -35,7 +50,7 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
   // record — the hook reports "not ready" rather than producing an empty PDF.
   const amendment = useReportDraftStore((store) => store.amendments[inspectionId]);
 
-  const loaded = state.status === 'success' ? state.data : null;
+  const loaded = state.status === 'success' ? state.data.data : null;
   const exporter = useDocumentExport(
     useCallback(
       () => (loaded ? reportDocument(loaded, amendment) : null),
@@ -59,18 +74,16 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
       <Screen>
         <ScreenHeader title="Report" onBack={() => navigation.goBack()} />
         <Body>
+          <OfflineBar style={{ marginBottom: spacing.md }} />
           <Card>
-            <ErrorState
-              message={state.error.message}
-              onRetry={state.error.retryable ? () => void run() : undefined}
-            />
+            <ErrorState message={state.error.message} onRetry={() => void run()} />
           </Card>
         </Body>
       </Screen>
     );
   }
 
-  const report = state.data;
+  const { data: report, savedAt } = state.data;
   const inspection = report.snapshot;
   const analysis = inspection.analysis;
 
@@ -83,6 +96,12 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
       />
 
       <Body>
+        {/* Above the letterhead, not below it. This document gets shown to the
+            party it was issued against; if what is on screen is a copy saved
+            three days ago, that has to be visible before the seal is, not in a
+            footnote under it. */}
+        <OfflineBar savedAt={savedAt} style={{ marginBottom: spacing.md }} />
+
         {/* Letterhead — the same mark and wording the exported PDF carries, so
             the screen an inspector shows a dealer and the document that is
             filed are recognisably one artefact. */}
@@ -147,6 +166,11 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
               score={analysis.compliance.score}
               ruleSetLabel={analysis.compliance.ruleSetLabel}
             />
+            {/* The extent of the examination, directly under the verdict it
+                supports. On a document that gets shown to the party it was
+                issued against, "how much was read" belongs beside "what was
+                found" and not several sections down. */}
+            <ComplianceTally analysis={analysis} />
           </View>
         ) : (
           <Card style={{ marginTop: spacing.md }}>
@@ -195,7 +219,10 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
         {/* Declarations */}
         {analysis ? (
           <>
-            <SectionHeader title="Declarations Examined" style={{ marginTop: spacing.xl }} />
+            <SectionHeader
+              title={`Declarations Examined (${analysis.fields.length})`}
+              style={{ marginTop: spacing.xl }}
+            />
             <Card>
               {analysis.fields.map((field, index) => {
                 const value = effectiveValue(field);
@@ -204,8 +231,12 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
                     {index > 0 ? <View style={styles.hairline} /> : null}
                     <View style={{ paddingVertical: spacing.md }}>
                       <Row justify="space-between" gap={spacing.md}>
+                        {/* Numbered, like the findings below. A report read
+                            aloud needs the declarations referable by position —
+                            "item four" has to mean the same thing on the screen
+                            and in the exported PDF. */}
                         <Txt variant="caption" color={colors.textMuted} style={{ flex: 1 }}>
-                          {field.label}
+                          {index + 1}. {field.label}
                         </Txt>
                         {field.reviewAction ? (
                           <Txt variant="caption" color={colors.info}>
@@ -274,6 +305,7 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
         {/* Evidence */}
         <SectionHeader
           title={`Evidence (${inspection.images.length})`}
+          subtitle={inspection.images.length > 0 ? 'Tap a photograph to read the label' : undefined}
           style={{ marginTop: spacing.xl }}
         />
         {inspection.images.length === 0 ? (
@@ -284,8 +316,13 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
           </Card>
         ) : (
           <Row gap={spacing.md} wrap>
-            {inspection.images.map((image) => (
-              <ImageThumb key={image.id} image={image} size={76} />
+            {inspection.images.map((image, position) => (
+              <ImageThumb
+                key={image.id}
+                image={image}
+                size={84}
+                onPress={() => setViewerIndex(position)}
+              />
             ))}
           </Row>
         )}
@@ -359,6 +396,13 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
       </ActionBar>
 
       <ExportSheet {...exporter.sheet} footnote={LETTERHEAD.departmentEn} />
+
+      <ImageViewer
+        images={inspection.images}
+        startIndex={viewerIndex ?? 0}
+        visible={viewerIndex !== null}
+        onClose={() => setViewerIndex(null)}
+      />
     </Screen>
   );
 }

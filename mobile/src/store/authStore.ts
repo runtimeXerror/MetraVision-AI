@@ -36,6 +36,8 @@ interface AuthState {
   profileError: ApiError | null;
 
   restore: () => Promise<void>;
+  /** Background confirmation of a restored session. See `restore`. */
+  verify: () => Promise<void>;
   login: (identifier: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -52,14 +54,56 @@ export const useAuthStore = create<AuthState>((set) => ({
   refreshingProfile: false,
   profileError: null,
 
+  /**
+   * Cold start.
+   *
+   * The device's own copy of the session is adopted immediately and the
+   * navigator is released; the server's verdict on it arrives afterwards and
+   * only ever *removes* a session, never delays one. See the long note at the
+   * head of `authService` — this ordering is what makes the app open at once
+   * with no signal instead of after a twenty-second splash screen.
+   */
   async restore() {
     set({ restoring: true });
+
+    let stored: AuthSession | null = null;
     try {
-      const session = await authService.restoreSession();
-      set({ session, inspector: session?.inspector ?? null, restoring: false });
+      stored = await authService.readStoredSession();
     } catch {
-      // A failed restore is just a signed-out start, never a blocking error.
-      set({ session: null, inspector: null, restoring: false });
+      // A keystore that will not read is a signed-out start, never a blocking
+      // error — the officer can sign in again.
+      stored = null;
+    }
+
+    set({ session: stored, inspector: stored?.inspector ?? null, restoring: false });
+
+    if (stored) void useAuthStore.getState().verify();
+  },
+
+  /**
+   * Confirms the restored session with the server, behind the app.
+   *
+   * Three outcomes, and only one of them changes what is on screen:
+   *
+   *   - `valid`       — adopt the server's copy of the inspector record, which
+   *                     may carry a jurisdiction a supervisor changed.
+   *   - `rejected`    — the account is gone or suspended. Sign out.
+   *   - `unreachable` — no verdict. The stored session stands, which is the
+   *                     whole point: an officer in a godown stays signed in.
+   */
+  async verify() {
+    const verdict = await authService.verifySession();
+
+    if (verdict.status === 'rejected') {
+      set({ session: null, inspector: null });
+      return;
+    }
+
+    if (verdict.status === 'valid') {
+      set((state) => ({
+        inspector: verdict.inspector,
+        session: state.session ? { ...state.session, inspector: verdict.inspector } : state.session,
+      }));
     }
   },
 

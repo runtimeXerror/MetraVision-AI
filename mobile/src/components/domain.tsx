@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
-  Image,
   Pressable,
   type StyleProp,
   StyleSheet,
@@ -22,6 +21,7 @@ import {
 } from '../constants/labels';
 import { colors, radius, spacing, toneColors, typography } from '../constants/theme';
 import type {
+  AIAnalysis,
   ComplianceStatus,
   ExtractedField,
   ImageQuality,
@@ -37,9 +37,11 @@ import {
   formatDate,
   formatRelative,
   initials,
+  pluralize,
   timestampParts,
 } from '../utils/format';
 
+import { RemoteImage } from './offline';
 import { Badge, Card, Meter, Row, Skeleton, Txt } from './ui';
 
 /**
@@ -329,7 +331,7 @@ export function ImageThumb({
         ]}
       >
         {image.uri ? (
-          <Image source={{ uri: image.uri }} style={styles.thumbImage} resizeMode="cover" />
+          <RemoteImage uri={image.uri} style={styles.thumbImage} resizeMode="cover" />
         ) : (
           <View style={styles.thumbPlaceholder}>
             <Ionicons name="image-outline" size={22} color={colors.textFaint} />
@@ -351,6 +353,116 @@ export function ImageThumb({
 
       <Txt variant="caption" color={colors.textMuted} numberOfLines={1} style={{ marginTop: 5 }}>
         {imageSideLabels[image.side]}
+      </Txt>
+    </View>
+  );
+}
+
+/**
+ * ── WHAT THE SCAN ACTUALLY FOUND, IN THREE NUMBERS ──────────────────────────
+ *
+ * The verdict panel above says what the package *is* — compliant, in
+ * contravention, or a question for a person. It does not say how much was
+ * examined to get there, and those are different claims. "Violation" carried by
+ * two readable declarations out of eleven is a much weaker document than the
+ * same verdict carried by all eleven, and an officer standing in front of a
+ * dealer is entitled to see which one they are holding before they say it out
+ * loud.
+ *
+ * So: how many declarations were read off the label, how many rule checks
+ * passed, and how many failed. The bar underneath is the same three counts as
+ * proportions, because "3 of 19" is a fact and the width of the red band is
+ * what the eye actually reads.
+ *
+ * Checks that did not apply to this commodity are excluded from the bar and
+ * stated in the footnote instead. Folding them into the passes would inflate
+ * the compliant share with rules the package was never subject to — a number
+ * that looks like an assessment and is not one.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+export function ComplianceTally({ analysis }: { analysis: AIAnalysis }) {
+  const fields = analysis.fields;
+  const checks = analysis.compliance.checks;
+
+  // Mirrors `effectiveValue`: an inspector who marked a declaration absent has
+  // overruled whatever the camera thought it saw, and that field was not read.
+  const read = fields.filter((field) => {
+    if (field.reviewAction === 'marked_unavailable') return null;
+    const value = field.humanValue ?? field.aiValue;
+    return value !== null && value !== undefined && value.trim() !== '';
+  }).length;
+
+  const passed = checks.filter((check) => check.result === 'pass').length;
+  const failed = checks.filter((check) => check.result === 'fail').length;
+  const advisory = checks.filter((check) => check.result === 'warning').length;
+  const notApplicable = checks.filter((check) => check.result === 'not_applicable').length;
+
+  const assessed = passed + failed + advisory;
+
+  return (
+    <Card style={{ marginTop: spacing.md }}>
+      <Row gap={spacing.sm} align="stretch">
+        <TallyCell
+          value={`${read}/${fields.length}`}
+          label="Declarations read"
+          tone={read === fields.length ? 'success' : 'neutral'}
+          icon="scan-outline"
+        />
+        <TallyCell value={passed} label="Compliant" tone="success" icon="checkmark-circle-outline" />
+        <TallyCell
+          value={failed}
+          label="Non-compliant"
+          tone={failed > 0 ? 'danger' : 'neutral'}
+          icon="close-circle-outline"
+        />
+      </Row>
+
+      {assessed > 0 ? (
+        <View style={styles.tallyBar}>
+          {passed > 0 ? (
+            <View style={{ flex: passed, backgroundColor: colors.success }} />
+          ) : null}
+          {advisory > 0 ? (
+            <View style={{ flex: advisory, backgroundColor: colors.warning }} />
+          ) : null}
+          {failed > 0 ? <View style={{ flex: failed, backgroundColor: colors.danger }} /> : null}
+        </View>
+      ) : null}
+
+      <Txt variant="caption" color={colors.textMuted} style={{ marginTop: spacing.sm }}>
+        {assessed === 0
+          ? 'No rule check could be applied to this record.'
+          : `${pluralize(assessed, 'rule check')} applied` +
+            (advisory > 0 ? ` · ${advisory} advisory` : '') +
+            (notApplicable > 0 ? ` · ${notApplicable} not applicable to this commodity` : '')}
+      </Txt>
+    </Card>
+  );
+}
+
+function TallyCell({
+  value,
+  label,
+  tone,
+  icon,
+}: {
+  value: number | string;
+  label: string;
+  tone: 'success' | 'danger' | 'neutral';
+  icon: keyof typeof Ionicons.glyphMap;
+}) {
+  const fg = toneColors[tone].fg;
+
+  return (
+    <View style={styles.tallyCell}>
+      <Ionicons name={icon} size={15} color={fg} />
+      {/* The number carries the tone, the label stays neutral. Colouring both
+          turns a count into an alarm, and two of these three are ordinary. */}
+      <Txt variant="title" color={fg} style={{ marginTop: 4 }}>
+        {value}
+      </Txt>
+      <Txt variant="caption" color={colors.textMuted} numberOfLines={2} style={{ marginTop: 2 }}>
+        {label}
       </Txt>
     </View>
   );
@@ -428,7 +540,7 @@ export function ExtractedFieldCard({
   const missing = displayValue === null || displayValue.trim() === '';
 
   return (
-    <Card style={[{ marginBottom: spacing.md }, style]}>
+    <Card style={[{ marginBottom: spacing.sm }, style]}>
       <Row justify="space-between" align="flex-start">
         <Txt variant="overline" color={colors.textFaint} style={{ flex: 1 }}>
           {field.label}
@@ -438,9 +550,9 @@ export function ExtractedFieldCard({
       </Row>
 
       <Txt
-        variant="title"
+        variant="heading"
         color={missing ? colors.danger : colors.text}
-        style={{ marginTop: spacing.sm }}
+        style={{ marginTop: spacing.xs }}
       >
         {missing ? 'Not declared' : displayValue}
       </Txt>
@@ -470,36 +582,45 @@ export function ExtractedFieldCard({
         </View>
       ) : null}
 
-      {field.aiValue !== null ? (
-        <View style={{ marginTop: spacing.md }}>
-          <Meter
-            value={field.confidence}
-            tone={field.confidence >= 0.9 ? 'success' : field.confidence >= 0.75 ? 'info' : 'warning'}
-          />
-        </View>
-      ) : null}
+      {/*
+        The confidence bar that used to sit here is gone. It said the same
+        thing as the pill in the corner, in the same card, twice — and across
+        twenty declarations that is twenty bars of chart doing no work, which
+        is most of what made this list read as clutter.
 
+        What replaced it matters more. `View evidence` opens the crop of the
+        photograph this value was read from, with the detection box on it, and
+        it is the only way an inspector can check a reading before it becomes a
+        finding: a batch number read as ":" or a brand read as "anacur: Beirhi
+        Co." is obvious in one glance at the pixels and invisible in a list. So
+        it is a bordered target now rather than a faint blue link.
+      */}
       {onViewEvidence || onReview ? (
-        <Row gap={spacing.lg} style={{ marginTop: spacing.md }}>
+        <Row gap={spacing.sm} style={{ marginTop: spacing.md }}>
           {onViewEvidence && field.boundingBox ? (
-            <Pressable onPress={onViewEvidence} hitSlop={10} accessibilityRole="button">
-              <Row gap={5}>
-                <Ionicons name="scan-outline" size={14} color={colors.accent} />
-                <Txt variant="label" color={colors.accent}>
-                  View Evidence
-                </Txt>
-              </Row>
+            <Pressable
+              onPress={onViewEvidence}
+              accessibilityRole="button"
+              accessibilityLabel={`View evidence for ${field.label}`}
+              style={({ pressed }) => [styles.fieldAction, pressed && { backgroundColor: colors.accentSoft }]}
+            >
+              <Ionicons name="scan-outline" size={15} color={colors.accent} />
+              <Txt variant="label" color={colors.accent}>
+                View evidence
+              </Txt>
             </Pressable>
           ) : null}
 
           {onReview ? (
-            <Pressable onPress={onReview} hitSlop={10} accessibilityRole="button">
-              <Row gap={5}>
-                <Ionicons name="create-outline" size={14} color={colors.accent} />
-                <Txt variant="label" color={colors.accent}>
-                  {corrected ? 'Change' : 'Review'}
-                </Txt>
-              </Row>
+            <Pressable
+              onPress={onReview}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.fieldAction, pressed && { backgroundColor: colors.accentSoft }]}
+            >
+              <Ionicons name="create-outline" size={15} color={colors.accent} />
+              <Txt variant="label" color={colors.accent}>
+                {corrected ? 'Change' : 'Review'}
+              </Txt>
             </Pressable>
           ) : null}
         </Row>
@@ -531,7 +652,7 @@ export function EvidenceView({
     <View>
       <View style={[styles.evidenceFrame, { height }]}>
         {image?.uri ? (
-          <Image source={{ uri: image.uri }} style={StyleSheet.absoluteFill} resizeMode="contain" />
+          <RemoteImage uri={image.uri} style={StyleSheet.absoluteFill} resizeMode="contain" />
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.evidenceEmpty]}>
             <Ionicons name="scan-outline" size={26} color={colors.textFaint} />
@@ -572,13 +693,31 @@ export function EvidenceView({
 
 /* ── Violations ───────────────────────────────────────────────────────────── */
 
-export function ViolationCard({ violation }: { violation: Violation }) {
+export function ViolationCard({
+  violation,
+  index,
+}: {
+  violation: Violation;
+  /**
+   * 1-based position in the list.
+   *
+   * Findings get numbered because they get *referred to*. An officer reads
+   * them out to a dealer, a supervisor asks about one over the phone, and the
+   * exported PDF prints them in this order — "the second finding" has to mean
+   * the same thing in all three places. Optional, so a card shown on its own
+   * is not numbered "1 of nothing".
+   */
+  index?: number;
+}) {
   return (
     <Card style={{ marginBottom: spacing.md, borderLeftWidth: 3, borderLeftColor: colors.danger }}>
-      <Row justify="space-between" align="flex-start">
-        <Txt variant="heading" style={{ flex: 1, paddingRight: spacing.sm }}>
-          {violation.title}
-        </Txt>
+      <Row justify="space-between" align="flex-start" gap={spacing.sm}>
+        <Row gap={spacing.sm} align="flex-start" style={{ flex: 1 }}>
+          {index !== undefined ? <OrdinalChip value={index} tone="danger" /> : null}
+          <Txt variant="heading" style={{ flex: 1 }}>
+            {violation.title}
+          </Txt>
+        </Row>
         <SeverityBadge severity={violation.severity} />
       </Row>
 
@@ -625,17 +764,39 @@ export function ViolationCard({ violation }: { violation: Violation }) {
   );
 }
 
+/**
+ * A small numbered disc.
+ *
+ * Tinted rather than filled: at this size a solid danger-red disc beside a
+ * danger-red card border reads as a second alarm, when all it is doing is
+ * counting.
+ */
+function OrdinalChip({ value, tone }: { value: number; tone: Tone }) {
+  const palette = toneColors[tone];
+
+  return (
+    <View style={[styles.ordinal, { backgroundColor: palette.bg }]}>
+      <Txt variant="caption" color={palette.fg}>
+        {value}
+      </Txt>
+    </View>
+  );
+}
+
 /** Compact row for the rule-check list. */
 export function CheckRow({
   title,
   ruleReference,
   result,
   message,
+  index,
 }: {
   title: string;
   ruleReference: string;
   result: keyof typeof checkResultTones;
   message: string;
+  /** 1-based position, for the same reason `ViolationCard` takes one. */
+  index?: number;
 }) {
   const tone = checkResultTones[result];
   const icon =
@@ -649,7 +810,18 @@ export function CheckRow({
 
   return (
     <Row align="flex-start" gap={spacing.md} style={{ paddingVertical: spacing.md }}>
-      <Ionicons name={icon} size={19} color={toneColors[tone].fg} style={{ marginTop: 1 }} />
+      {/* The result icon stays, and the number sits under it rather than
+          replacing it: the number says *which* check, the icon says how it
+          went, and an officer scanning the list for failures is reading the
+          second of those. */}
+      <View style={{ alignItems: 'center', width: 20 }}>
+        <Ionicons name={icon} size={19} color={toneColors[tone].fg} style={{ marginTop: 1 }} />
+        {index !== undefined ? (
+          <Txt variant="caption" color={colors.textFaint} style={{ marginTop: 2 }}>
+            {index}
+          </Txt>
+        ) : null}
+      </View>
       <View style={{ flex: 1 }}>
         <Row justify="space-between" gap={spacing.sm}>
           <Txt variant="bodyStrong" style={{ flex: 1 }}>
@@ -697,6 +869,49 @@ export function Avatar({
 }
 
 const styles = StyleSheet.create({
+  ordinal: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: radius.pill,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  tallyCell: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: 4,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+  /**
+   * The proportion bar.
+   *
+   * `overflow: hidden` with a pill radius so the three flex children are
+   * clipped into one continuous band rather than three abutting rectangles —
+   * at this height a visible seam reads as a gap in the data.
+   */
+  tallyBar: {
+    flexDirection: 'row',
+    height: 6,
+    marginTop: spacing.md,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
+    backgroundColor: colors.neutralSoft,
+  },
+  fieldAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 38,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.accentSoft,
+    backgroundColor: colors.surfaceAlt,
+  },
   verdict: {
     alignItems: 'center',
     padding: spacing.lg,

@@ -4,21 +4,20 @@ import { Platform } from 'react-native';
 import type { Inspection } from '../types';
 
 /**
- * Persistence.
+ * Credentials.
  *
- * Two tiers, deliberately separated:
+ * Tokens and the stored session go through `expo-secure-store` (Keychain /
+ * Keystore). Nothing else belongs in here.
  *
- *   - Credentials go through `expo-secure-store` (Keychain / Keystore).
- *   - Everything else is queued in memory for now.
+ * ── WHERE THE OTHER KINDS OF PERSISTENCE LIVE ───────────────────────────────
  *
- * The offline queue below is the *abstraction* Phase 2 needs, not a full sync
- * engine. It records the intent to submit an inspection so that a later phase
- * can drain it against the backend:
+ *   - `offlineCache` / `offlineRegister` — the officer's register, reports and
+ *     label photographs, written to the document directory so every *read* in
+ *     the app works with no connection.
+ *   - `draftService` — one unfinished capture, so a form survives the app dying
+ *     mid-inspection.
  *
- *     Capture offline  ->  Local queue  ->  Sync  ->  Backend
- *
- * Building the real thing now would mean guessing at conflict-resolution rules
- * the backend has not defined yet, so the queue is intentionally shallow.
+ * Both are reads and drafts. Neither files anything.
  */
 
 const TOKEN_KEY = 'lm.auth.token';
@@ -117,7 +116,32 @@ export async function clearSession(): Promise<void> {
   await Promise.all([removeItem(TOKEN_KEY), removeItem(REFRESH_KEY), removeItem(SESSION_KEY)]);
 }
 
-/* ── Offline queue (abstraction only) ─────────────────────────────────────── */
+/* ── Offline queue (still an abstraction, and deliberately so) ────────────── */
+
+/**
+ * ── WHY OFFLINE *WRITES* WERE NOT BUILT ─────────────────────────────────────
+ *
+ * Offline reading is implemented — `offlineCache` holds the register, the
+ * reports and their photographs, and every screen serves from it when there is
+ * no signal. Filing deliberately stops at the network's edge, and this queue
+ * stays a stub.
+ *
+ * Three of the four things an inspection needs are not on the phone. The
+ * reference number is issued by the server and is what makes the record
+ * citable. The photographs are read by the PaddleOCR service. The verdict is
+ * made by the Legal Metrology rule engine against a rule set that is versioned
+ * server-side. A queued inspection would be a record with no reference, no
+ * extraction and no finding — and it would file itself, unattended, from
+ * wherever the officer's phone happened to regain signal, hours after they left
+ * the premises and with nobody present to stand behind it.
+ *
+ * That is not a caching problem, it is an evidentiary one. If offline filing is
+ * wanted later it needs a design of its own: provisional local references
+ * reconciled on sync, a queued record that is visibly *not yet filed*, and a
+ * rule about who is accountable for a finding produced by a machine after the
+ * fact. None of that should be arrived at by extending a cache.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
 
 export interface QueuedInspection {
   id: string;

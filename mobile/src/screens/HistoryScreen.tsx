@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 
 import { InspectionCard } from '../components/domain';
+import { OfflineBar } from '../components/offline';
 import { FilterDropdown } from '../components/forms';
 import { Body, Screen, ScreenHeader } from '../components/layout';
 import {
@@ -70,6 +71,8 @@ export function HistoryScreen() {
   const loading = useHistoryStore((state) => state.loading);
   const refreshing = useHistoryStore((state) => state.refreshing);
   const error = useHistoryStore((state) => state.error);
+  const fromCache = useHistoryStore((state) => state.fromCache);
+  const cachedAt = useHistoryStore((state) => state.cachedAt);
   const search = useHistoryStore((state) => state.search);
   const statusFilter = useHistoryStore((state) => state.statusFilter);
   const dateFilter = useHistoryStore((state) => state.dateFilter);
@@ -191,9 +194,22 @@ export function HistoryScreen() {
           />
         }
       >
+        {/* The search box, the chips and the pager above all work with no
+            signal — they run against the register saved on the device. This
+            says so, and says how old that register is, because a filtered count
+            from a saved copy is not the same claim as one from the server. */}
+        <OfflineBar
+          savedAt={fromCache ? cachedAt : null}
+          style={{ marginBottom: spacing.md }}
+        />
+
         {error ? (
           <Card>
-            <ErrorState message={error.message} onRetry={error.retryable ? () => void load() : undefined} />
+            {/* Always retryable. A network failure carries no `retryable` flag
+                from the server — there was no server — and hiding the button
+                left an officer who had just regained signal with no way to ask
+                again except to leave the screen. */}
+            <ErrorState message={error.message} onRetry={() => void load()} />
           </Card>
         ) : loading && items.length === 0 ? (
           [0, 1, 2].map((key) => (

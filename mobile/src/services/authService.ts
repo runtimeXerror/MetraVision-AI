@@ -1,6 +1,7 @@
 import { ApiError, type AuthSession, type LoginRequest } from '../types';
 
 import { request } from './api';
+import { clearOfflineCache } from './offlineCache';
 import { toAuthSession, toInspector, type AuthSessionDTO, type UserDTO } from './mappers';
 import { clearSession, getSession, saveSession, saveToken, saveTokens } from './storage';
 
@@ -64,36 +65,88 @@ export async function register(input: {
 }
 
 /**
- * Restores a stored session on cold start.
+ * ── COLD START, IN TWO STEPS ────────────────────────────────────────────────
  *
- * Returns `null` rather than throwing when nothing is stored or the session has
- * expired — a signed-out state is not an error condition.
+ * Reading the stored session and confirming it with the server used to be one
+ * call, and the navigator waited on all of it before rendering anything.
  *
- * A stored session whose access token has lapsed is still worth keeping: the
- * refresh token usually outlives it by weeks, so the identity is confirmed
- * against `/auth/me`, which transparently refreshes through `api.ts`.
+ * That is fine on a desk. In the field it was the whole problem: with no
+ * signal, `/auth/me` sat on the full request timeout before failing, and the
+ * app showed twenty seconds of splash screen and *then* the officer's own
+ * records — which had been on the device the entire time. To anyone holding
+ * the phone, the app had simply not started.
+ *
+ * So the two halves are separated, and only the first one gates the UI.
+ *
+ *   1. `readStoredSession` — the device's own copy. No network, no waiting.
+ *   2. `verifySession`     — the server's verdict on it, in the background.
+ *
+ * Trusting the device first is not a weakening of the check. The session is
+ * still confirmed on every launch, and a revoked or suspended account is still
+ * signed out the moment the server says so; the difference is that the officer
+ * is looking at their register while that happens instead of at a spinner. The
+ * tokens themselves are signed and short-lived, so the stored copy cannot
+ * outlive its own authority for long, and no *write* can succeed on a session
+ * the server has stopped accepting — only reading what the phone already had.
+ * ────────────────────────────────────────────────────────────────────────────
  */
-export async function restoreSession(): Promise<AuthSession | null> {
-  const stored = await getSession<AuthSession>();
-  if (!stored) return null;
 
+/** How long the background session check waits. See `verifySession`. */
+const SESSION_VERIFY_TIMEOUT_MS = 8_000;
+
+/**
+ * The stored session, straight off the device.
+ *
+ * Returns `null` when there is nothing stored — a signed-out start is not an
+ * error condition. Never touches the network, so it resolves in the same frame
+ * whether or not there is a connection.
+ */
+export async function readStoredSession(): Promise<AuthSession | null> {
+  return getSession<AuthSession>();
+}
+
+/** What the server said about the identity the device is holding. */
+export type SessionVerdict =
+  /** Confirmed, with the server's copy of the inspector record. */
+  | { status: 'valid'; inspector: AuthSession['inspector'] }
+  /** Refused — the account is gone, suspended, or the tokens are dead. */
+  | { status: 'rejected' }
+  /** The server could not be reached. Says nothing about the session. */
+  | { status: 'unreachable' };
+
+/**
+ * Confirms the stored identity against `/auth/me`.
+ *
+ * An access token that has lapsed is not a rejection: the refresh token usually
+ * outlives it by weeks, and `api.ts` refreshes and replays transparently. Only
+ * an answer from the server saying *no* counts.
+ *
+ * A short leash on purpose. This runs behind an app the officer is already
+ * using; leaving it on the full timeout would hold a request open across the
+ * first screen they interact with, for a check whose result — on a bad
+ * connection — is going to be `unreachable` either way.
+ */
+export async function verifySession(): Promise<SessionVerdict> {
   try {
-    const user = await request<UserDTO>('/auth/me');
-    const session: AuthSession = { ...stored, inspector: toInspector(user) };
-    await saveSession(session);
-    return session;
+    const user = await request<UserDTO>('/auth/me', { timeoutMs: SESSION_VERIFY_TIMEOUT_MS });
+    const inspector = toInspector(user);
+
+    const stored = await getSession<AuthSession>();
+    if (stored) await saveSession({ ...stored, inspector });
+
+    return { status: 'valid', inspector };
   } catch (error) {
     const apiError = error as ApiError;
 
     // Only a rejected identity clears the session. A network failure must not
-    // sign an inspector out — they may be mid-inspection with no signal.
+    // sign an inspector out — they may be mid-inspection with no signal, and
+    // signing them out would take their register with it.
     if (apiError.kind === 'unauthorized' || apiError.kind === 'forbidden') {
       await clearSession();
-      return null;
+      return { status: 'rejected' };
     }
 
-    if (new Date(stored.expiresAt).getTime() > Date.now()) return stored;
-    return stored;
+    return { status: 'unreachable' };
   }
 }
 
@@ -111,6 +164,11 @@ export async function logout(): Promise<void> {
   }
 
   await clearSession();
+
+  // And the register that was cached for offline reading. Handsets are shared
+  // on a shift: every cached entry is owner-checked before it is served, but
+  // refusing to read a file is not the same as not leaving it on the device.
+  clearOfflineCache();
 }
 
 export async function getCurrentUser(): Promise<AuthSession['inspector']> {

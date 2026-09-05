@@ -4,5 +4,8 @@ export * from './aiService';
 export * from './inspectionService';
 export * from './reportService';
 export * from './storage';
+export * from './offlineCache';
+export * from './offlineReads';
+export * from './offlineRegister';
 export * from './analyticsService';
 export * from './exportService';

@@ -1,4 +1,11 @@
-import { API_BASE_URL, REQUEST_TIMEOUT_MS, USE_MOCK_SERVICES } from '../constants/config';
+import {
+  API_BASE_URL,
+  OFFLINE_TIMEOUT_MS,
+  REQUEST_TIMEOUT_MS,
+  UPLOAD_TIMEOUT_MS,
+  USE_MOCK_SERVICES,
+} from '../constants/config';
+import { useConnectivityStore } from '../store/connectivityStore';
 import { ApiError, type ApiErrorKind } from '../types';
 
 import { getRefreshToken, getToken, saveTokens } from './storage';
@@ -21,6 +28,14 @@ interface RequestOptions {
   /** Appended as a query string; `undefined` and `''` values are dropped. */
   query?: Record<string, string | number | boolean | undefined>;
   signal?: AbortSignal;
+  /**
+   * How long to wait before aborting, in milliseconds.
+   *
+   * Defaults to `UPLOAD_TIMEOUT_MS` for a multipart body and
+   * `REQUEST_TIMEOUT_MS` for everything else. Set it only for a call that
+   * waits on real work — the scan waits on OCR and passes `SCAN_TIMEOUT_MS`.
+   */
+  timeoutMs?: number;
   /** Skips the Authorization header — used by login, register and refresh. */
   anonymous?: boolean;
   /** Internal: prevents a refresh loop. */
@@ -69,6 +84,15 @@ function kindFor(status: number, errorCode?: string): ApiErrorKind {
     case 'NO_FILE':
       return 'upload_failed';
     case 'ANALYSIS_FAILED':
+    // The scan pipeline's own failure code, and the one an inspector meets
+    // most: it arrives as a 422 for a photograph the OCR could not read and as
+    // a 503 when the OCR service is down. Without this it fell through to the
+    // status check below and a failed scan was reported as a validation
+    // problem with the request — which it never is.
+    case 'SCAN_FAILED':
+    // A scan already running on this record. Retrying is the right move: by
+    // the time the inspector taps it, the first scan has finished.
+    case 'SCAN_IN_PROGRESS':
       return 'analysis_failed';
     default:
       break;
@@ -136,10 +160,34 @@ async function refreshSession(): Promise<boolean> {
  * blank one.
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, formData, query, signal, anonymous } = options;
+  const { method = 'GET', body, formData, query, signal, anonymous, timeoutMs } = options;
+
+  // A photograph on the way up, and a scan waiting on OCR at the other end,
+  // both take longer than a JSON call ever should. One flat timeout for all
+  // three cancels the work of the slow two.
+  const limitMs = timeoutMs ?? (formData ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+
+  /**
+   * A much shorter leash once the app already knows the server is unreachable.
+   *
+   * The full twenty seconds is the right wait for a request that has a chance
+   * of being answered. Spending it on the fourth call in a row from a phone
+   * with no signal is how a screen that could have rendered from the cache
+   * immediately instead sits on a spinner — and the officer concludes the app
+   * has hung. The first failure sets the belief; every call after it fails
+   * fast, and any success flips it straight back.
+   *
+   * Never applied to an explicit timeout or an upload: those are set by callers
+   * who know what they are waiting for, and cutting a scan short mid-pipeline
+   * is the failure this file already carries a long comment about.
+   */
+  const effectiveLimitMs =
+    timeoutMs === undefined && !formData && !useConnectivityStore.getState().online
+      ? Math.min(limitMs, OFFLINE_TIMEOUT_MS)
+      : limitMs;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), effectiveLimitMs);
   signal?.addEventListener('abort', () => controller.abort());
 
   try {
@@ -159,6 +207,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       body: formData ?? (body === undefined ? undefined : JSON.stringify(body)),
       signal: controller.signal,
     });
+
+    // The server answered. Recorded before the status is even looked at: a 401
+    // or a 500 is still proof the app can reach the department's API, and it is
+    // reachability — not success — that decides whether screens render live
+    // data or a saved copy.
+    useConnectivityStore.getState().noteReachable();
 
     const text = await response.text();
     const payload: unknown = text ? safeParse(text) : undefined;
@@ -180,7 +234,16 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       throw new ApiError(
         kindFor(response.status, errorCode),
         error?.message ?? `Request failed with status ${response.status}`,
-        { status: response.status, details: error?.details, code: errorCode },
+        {
+          status: response.status,
+          details: error?.details,
+          code: errorCode,
+          // The scan endpoint states whether its failure is worth retrying —
+          // an OCR outage is, a corrupted photograph is not — and it knows
+          // which happened. Where it has said so, that decides whether the
+          // screen offers a Retry button.
+          retryable: retryableFrom(error?.details),
+        },
       );
     }
 
@@ -189,8 +252,21 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   } catch (error) {
     if (error instanceof ApiError) throw error;
 
+    // Nothing came back. Both branches below mean the same thing to the rest of
+    // the app — the server was not reached — and that is what puts it into
+    // offline mode, where every screen serves what it last saved to disk.
+    //
+    // A caller-supplied `signal` that aborted is the exception: that is the
+    // screen cancelling its own request, not the network failing, and treating
+    // it as an outage would drop a perfectly connected app into offline mode
+    // every time an inspector navigated away from a loading list.
+    if (!signal?.aborted) useConnectivityStore.getState().noteUnreachable();
+
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError('timeout', 'The request timed out. Check your connection and try again.');
+      throw new ApiError(
+        'timeout',
+        `The request timed out after ${Math.round(effectiveLimitMs / 1000)} seconds. Check your connection and try again.`,
+      );
     }
 
     throw new ApiError(
@@ -201,6 +277,15 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** The backend's own verdict on whether a failure is worth retrying, if it gave one. */
+function retryableFrom(details: unknown): boolean | undefined {
+  if (details && typeof details === 'object' && 'retryable' in details) {
+    const value = (details as { retryable?: unknown }).retryable;
+    if (typeof value === 'boolean') return value;
+  }
+  return undefined;
 }
 
 function safeParse(text: string): unknown {

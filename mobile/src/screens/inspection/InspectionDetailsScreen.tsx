@@ -6,6 +6,8 @@ import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { LocationField } from '../../components/LocationField';
 import { Input, Select } from '../../components/forms';
 import { ActionBar, Body, Notice, Screen, ScreenHeader, StepIndicator } from '../../components/layout';
+import { NeedsConnection } from '../../components/offline';
+import { useIsOnline } from '../../store/connectivityStore';
 import { Button, Card, Row, Txt } from '../../components/ui';
 import { productCategoryLabels } from '../../constants/labels';
 import { colors, radius, spacing } from '../../constants/theme';
@@ -32,6 +34,10 @@ const CATEGORY_OPTIONS = PRODUCT_CATEGORIES.map((value) => ({
  */
 export function InspectionDetailsScreen() {
   const navigation = useNavigation();
+
+  // Step 1 of the capture flow is the one step that cannot be done offline —
+  // the reference number is the server's to issue. See the note by the footer.
+  const online = useIsOnline();
 
   const id = useInspectionStore((state) => state.id);
   const referenceId = useInspectionStore((state) => state.referenceId);
@@ -152,7 +158,22 @@ export function InspectionDetailsScreen() {
             </Row>
           </Card>
 
+          {/*
+            Three cards rather than one.
+
+            Everything below used to sit in a single container: the shop, where
+            it is, what was bought there and what the officer thought of it,
+            stacked as one undifferentiated column of eight inputs. They are
+            answers to three different questions — *which premises*, *which
+            product*, *anything else* — and only the first two are required, so
+            the grouping is also what tells an inspector how much of this they
+            have to fill in before they can photograph anything.
+          */}
           <Card style={{ marginTop: spacing.md }}>
+            <Txt variant="overline" color={colors.textFaint} style={styles.group}>
+              Premises
+            </Txt>
+
             <Input
               label="Business / shop name"
               placeholder="e.g. Sai Provision Stores"
@@ -185,6 +206,17 @@ export function InspectionDetailsScreen() {
               }}
               error={errors.location}
             />
+          </Card>
+
+          <Card style={{ marginTop: spacing.md }}>
+            <Row justify="space-between" align="center" style={styles.group}>
+              <Txt variant="overline" color={colors.textFaint}>
+                Product
+              </Txt>
+              <Txt variant="caption" color={colors.textFaint}>
+                Optional
+              </Txt>
+            </Row>
 
             <Input
               label="Product name"
@@ -192,7 +224,7 @@ export function InspectionDetailsScreen() {
               icon="cube-outline"
               value={details.productName ?? ''}
               onChangeText={(text) => setDetail('productName', text)}
-              hint="Optional — the analysis also infers this from the label."
+              hint="The scan also reads this from the label."
             />
 
             <Select<ProductCategory>
@@ -201,7 +233,7 @@ export function InspectionDetailsScreen() {
               value={details.productCategory}
               options={CATEGORY_OPTIONS}
               onChange={setCategory}
-              hint="Which declarations the package must carry follows from this. Pick Other if none fit."
+              hint="Which declarations the package must carry follows from this. Left blank, the scan classifies it from the commodity name printed on the package."
             />
 
             <Input
@@ -228,16 +260,36 @@ export function InspectionDetailsScreen() {
             text="The inspection is filed to the departmental server the moment you continue, and is assigned an official reference number."
             style={{ marginTop: spacing.md }}
           />
+
+          {/* Said before the officer fills the form in, not after they tap
+              Continue and watch it fail.
+
+              A new inspection genuinely cannot be started offline, and that is
+              a deliberate limit rather than a gap: the reference number is
+              issued by the server, the photographs are read by the OCR service,
+              and the finding is made by the rule engine — none of which is on
+              the phone. Queueing the intake locally would hand the officer a
+              record with no reference and no verdict, and file it hours later
+              from a car park. Reading what has already been filed is what works
+              with no signal; making a new enforcement record is not. */}
+          <View style={{ marginTop: spacing.md }}>
+            <NeedsConnection action="Filing a new inspection" />
+          </View>
         </Body>
       </KeyboardAvoidingView>
 
       <ActionBar>
         <Button
-          title="Continue to Images"
-          iconRight="arrow-forward"
+          title={online ? 'Continue to Images' : 'Waiting for a connection'}
+          iconRight={online ? 'arrow-forward' : undefined}
+          icon={online ? undefined : 'cloud-offline-outline'}
           size="lg"
           fullWidth
           loading={saving}
+          // Disabled rather than left to fail. Tapping through to a timeout
+          // loses whatever was typed into the form to a spinner, and tells the
+          // officer nothing they could not have been told beforehand.
+          disabled={!online}
           onPress={() => void onContinue()}
         />
       </ActionBar>
@@ -253,6 +305,8 @@ const styles = StyleSheet.create({
   },
   /** Label over value, both centred on the column. */
   stamp: { alignItems: 'center' },
+  /** The heading over a group of inputs. */
+  group: { marginBottom: spacing.md },
   /**
    * The clock is set at the body size rather than the mono default, so it
    * carries the same weight as the date beside it — a running number set two

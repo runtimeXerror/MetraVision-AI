@@ -1,4 +1,5 @@
 export * from './authStore';
+export * from './connectivityStore';
 export * from './inspectionStore';
 export * from './imageStore';
 export * from './analysisStore';

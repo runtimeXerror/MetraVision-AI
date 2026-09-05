@@ -13,10 +13,11 @@ import { colors, radius, spacing } from '../constants/theme';
 import { useAsync } from '../hooks/useAsync';
 import { apiInfo, checkHealth, toApiError } from '../services/api';
 import { changePassword } from '../services/authService';
+import { offlineCacheSize } from '../services/offlineCache';
 import { offlineQueue } from '../services/storage';
 import { useAuthStore } from '../store/authStore';
 import { useHistoryStore } from '../store/historyStore';
-import { formatDateTime } from '../utils/format';
+import { formatBytes, formatDateTime } from '../utils/format';
 import { hasErrors, password as validatePassword } from '../utils/validation';
 
 export function ProfileScreen() {
@@ -225,6 +226,8 @@ export function ProfileScreen() {
           />
           <View style={styles.hairline} />
           <ConnectivityRow />
+          <View style={styles.hairline} />
+          <OfflineDataRow />
         </Card>
 
         <Notice
@@ -250,6 +253,41 @@ export function ProfileScreen() {
         onClose={() => setChangingPassword(false)}
       />
     </Screen>
+  );
+}
+
+/**
+ * What the app is holding for use with no signal.
+ *
+ * Stated rather than left invisible, for two reasons. It is the officer's
+ * storage being used, and they are entitled to see how much; and when they are
+ * standing somewhere with no signal, knowing that their register *is* on the
+ * device is the difference between trusting the screen and assuming it is
+ * broken.
+ *
+ * Read once on mount. The figure only moves when records are fetched, and a
+ * directory size recomputed on every render of a settings screen is work spent
+ * on a number nobody is watching change.
+ */
+function OfflineDataRow() {
+  const [bytes, setBytes] = useState<number | null>(null);
+
+  useEffect(() => {
+    setBytes(offlineCacheSize());
+  }, []);
+
+  return (
+    <InfoRow
+      icon="save-outline"
+      label="Saved for offline use"
+      value={
+        bytes === null
+          ? '—'
+          : bytes === 0
+            ? 'Nothing saved yet'
+            : `${formatBytes(bytes)} of records and label images`
+      }
+    />
   );
 }
 

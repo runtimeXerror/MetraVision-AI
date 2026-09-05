@@ -6,6 +6,7 @@ import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { BarList, ColumnChart, ShareLegend, StackedShareBar, type ShareSegment } from '../components/charts';
 import { ComplianceBadge, StatTile, StatTileRowSkeleton } from '../components/domain';
 import { GovHeader } from '../components/branding';
+import { OfflineBar } from '../components/offline';
 import { RuleBook } from '../components/rulebook';
 import { Body, Screen, ScreenHeader } from '../components/layout';
 import {
@@ -54,6 +55,8 @@ export function ReportsScreen() {
   const loading = useDashboardStore((state) => state.loading);
   const refreshing = useDashboardStore((state) => state.refreshing);
   const error = useDashboardStore((state) => state.error);
+  const fromCache = useDashboardStore((state) => state.fromCache);
+  const cachedAt = useDashboardStore((state) => state.cachedAt);
   const load = useDashboardStore((state) => state.load);
   const setPeriod = useDashboardStore((state) => state.setPeriod);
 
@@ -184,12 +187,17 @@ export function ReportsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.navy} />
         }
       >
+        {/* Every figure below is an aggregate a supervisor may be shown. The
+            date on a saved one is not a nicety — it is the difference between
+            this month's compliance rate and last week's. */}
+        <OfflineBar
+          savedAt={fromCache ? cachedAt : null}
+          style={{ marginBottom: spacing.md }}
+        />
+
         {error && !overview ? (
           <Card>
-            <ErrorState
-              message={error.message}
-              onRetry={error.retryable ? () => void load() : undefined}
-            />
+            <ErrorState message={error.message} onRetry={() => void load()} />
           </Card>
         ) : (
           <>

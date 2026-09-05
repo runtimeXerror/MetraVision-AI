@@ -18,6 +18,8 @@ import { ReviewScreen } from '../screens/inspection/ReviewScreen';
 import { SuccessScreen } from '../screens/inspection/SuccessScreen';
 import { useAuthStore } from '../store/authStore';
 import { DialogHost } from '../components/Dialog';
+import { onReconnect, startConnectivityWatch } from '../store/connectivityStore';
+import { useDashboardStore } from '../store/dashboardStore';
 import { useDraftStore, startDraftAutosave } from '../store/draftStore';
 import { useHistoryStore } from '../store/historyStore';
 
@@ -102,6 +104,7 @@ export function RootNavigator() {
 
   const refreshHistory = useHistoryStore((state) => state.refreshAll);
   const resetHistory = useHistoryStore((state) => state.reset);
+  const resetDashboard = useDashboardStore((state) => state.reset);
 
   const discardStaleDraft = useDraftStore((state) => state.discardStale);
   const resetDraft = useDraftStore((state) => state.reset);
@@ -113,9 +116,44 @@ export function RootNavigator() {
   // Load the inspector's records once they are signed in; clear them on
   // sign-out so a second inspector never sees the first one's history.
   useEffect(() => {
-    if (inspector) void refreshHistory();
-    else resetHistory();
-  }, [inspector, refreshHistory, resetHistory]);
+    if (inspector) {
+      void refreshHistory();
+      return;
+    }
+
+    resetHistory();
+    // The dashboard is cleared with it. Its figures are cached per officer, and
+    // leaving the previous one's KPIs on screen through a sign-out would show
+    // one inspector another's enforcement record.
+    resetDashboard();
+  }, [inspector, refreshHistory, resetHistory, resetDashboard]);
+
+  /**
+   * ── STAYING HONEST ABOUT THE CONNECTION ────────────────────────────────
+   *
+   * One watcher for the whole app, mounted here because every screen's
+   * "showing a saved copy" strip reads from it and none of them owns it.
+   *
+   * The reconnect handler is the other half of the offline story. Without it,
+   * an officer who walks out of a basement is left holding cached figures with
+   * a banner telling them so, and nothing happens until they think to pull the
+   * list down. With it, coverage returning refreshes the register by itself —
+   * which is the behaviour anybody would assume the app already had.
+   */
+  useEffect(() => {
+    const stopWatching = startConnectivityWatch();
+
+    const stopListening = onReconnect(() => {
+      if (!useAuthStore.getState().inspector) return;
+      void useHistoryStore.getState().refreshAll();
+      void useDashboardStore.getState().load({ refresh: true });
+    });
+
+    return () => {
+      stopWatching();
+      stopListening();
+    };
+  }, []);
 
   /**
    * Look for an unfinished capture, and start recording one.

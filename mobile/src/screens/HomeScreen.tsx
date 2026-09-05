@@ -4,6 +4,7 @@ import React, { useCallback } from 'react';
 import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 
 import { GovHeader } from '../components/branding';
+import { OfflineBar } from '../components/offline';
 import { InspectionCard, StatTile, StatTileRowSkeleton } from '../components/domain';
 import { Body, Notice, Screen } from '../components/layout';
 import {
@@ -38,6 +39,13 @@ export function HomeScreen() {
   const refreshing = useHistoryStore((state) => state.refreshing);
   const error = useHistoryStore((state) => state.error);
   const refreshAll = useHistoryStore((state) => state.refreshAll);
+
+  // Whether this screen is showing the server's register or the device's copy
+  // of it, and how old that copy is. Home is the first screen after launch, so
+  // it is where an officer with no signal finds out.
+  const fromCache = useHistoryStore((state) => state.fromCache);
+  const cachedAt = useHistoryStore((state) => state.cachedAt);
+  const statsAreDerived = useHistoryStore((state) => state.statsAreDerived);
 
   const resetInspection = useInspectionStore((state) => state.reset);
   const resetImages = useImageStore((state) => state.reset);
@@ -102,6 +110,11 @@ export function HomeScreen() {
           />
         }
       >
+        <OfflineBar
+          savedAt={fromCache ? cachedAt : null}
+          style={{ marginBottom: spacing.md }}
+        />
+
         {/* Greeting. Sits on the page rather than in the masthead, so the
             masthead stays the department's and not the session's. */}
         <Row justify="space-between" align="flex-end">
@@ -164,7 +177,16 @@ export function HomeScreen() {
             repeat to a supervisor. Scoping them to today would need the
             aggregate endpoint to take a date range; renaming the section makes
             it true today. */}
-        <SectionHeader title="Overview" style={{ marginTop: spacing.xl }} />
+        <SectionHeader
+          title="Overview"
+          /* Only when the counts were computed from the records the device
+             happens to hold rather than returned by the aggregate endpoint. An
+             officer may read these four numbers out to a supervisor, and a
+             subtotal quoted as a total is the one failure this whole feature
+             must not introduce. */
+          subtitle={statsAreDerived ? 'Counted from the records saved on this device' : undefined}
+          style={{ marginTop: spacing.xl }}
+        />
 
         {loading && items.length === 0 ? (
           <>
