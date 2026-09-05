@@ -532,27 +532,6 @@ export function ConfidencePill({ confidence }: { confidence: number }) {
  * Shows the model's read and, when the inspector has corrected it, both values
  * — the corrected one as the value of record and the original as provenance.
  */
-/**
- * One declaration, closed until it is asked about.
- *
- * ── WHY IT COLLAPSES ────────────────────────────────────────────────────
- *
- * A cosmetic label carries a dozen declarations and a food label more. Every
- * card opened to its full height — value, provenance line, and two buttons —
- * so the list an officer scrolls to answer "what did it read?" was three
- * screens long, and the two declarations that actually matter sat somewhere in
- * the middle of ten that were fine.
- *
- * What survives collapsed is what the scan is for: the declaration, the value
- * of record, and how sure the recogniser was. "Not declared" stays in red and
- * stays visible, because that is the finding — a list that hides its own
- * findings until each row is opened would be worse than the long one.
- *
- * What folds away is what you only want once you have picked a row: who
- * confirmed or corrected it, what the model originally read, and the two
- * actions. Those are per-declaration work, and per-declaration work belongs
- * behind the declaration you chose.
- */
 export function ExtractedFieldCard({
   field,
   onViewEvidence,
@@ -564,62 +543,30 @@ export function ExtractedFieldCard({
   onReview?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
-  const [open, setOpen] = useState(false);
-
   const corrected = field.reviewAction !== undefined;
   const displayValue =
     field.reviewAction === 'marked_unavailable' ? null : (field.humanValue ?? field.aiValue);
   const missing = displayValue === null || displayValue.trim() === '';
 
-  const hasMore = corrected || Boolean(onViewEvidence && field.boundingBox) || Boolean(onReview);
-
   return (
     <Card style={[{ marginBottom: spacing.sm }, style]}>
-      <Pressable
-        onPress={() => setOpen((current) => !current)}
-        disabled={!hasMore}
-        accessibilityRole={hasMore ? 'button' : 'text'}
-        accessibilityLabel={`${field.label}: ${missing ? 'not declared' : displayValue}`}
-        accessibilityState={hasMore ? { expanded: open } : undefined}
-        style={({ pressed }) => (pressed && hasMore ? { opacity: 0.7 } : undefined)}
+      <Row justify="space-between" align="flex-start">
+        <Txt variant="overline" color={colors.textFaint} style={{ flex: 1 }}>
+          {field.label}
+          {field.required ? ' · Required' : ''}
+        </Txt>
+        {field.aiValue !== null ? <ConfidencePill confidence={field.confidence} /> : null}
+      </Row>
+
+      <Txt
+        variant="heading"
+        color={missing ? colors.danger : colors.text}
+        style={{ marginTop: spacing.xs }}
       >
-        <Row justify="space-between" align="flex-start">
-          <Txt variant="overline" color={colors.textFaint} style={{ flex: 1 }}>
-            {field.label}
-            {field.required ? ' · Required' : ''}
-          </Txt>
-          {field.aiValue !== null ? <ConfidencePill confidence={field.confidence} /> : null}
-        </Row>
+        {missing ? 'Not declared' : displayValue}
+      </Txt>
 
-        <Row justify="space-between" align="center" gap={spacing.sm}>
-          <Txt
-            variant="heading"
-            color={missing ? colors.danger : colors.text}
-            style={{ flex: 1, marginTop: spacing.xs }}
-          >
-            {missing ? 'Not declared' : displayValue}
-          </Txt>
-
-          {hasMore ? (
-            <Ionicons
-              name={open ? 'chevron-up' : 'chevron-down'}
-              size={16}
-              color={colors.textFaint}
-            />
-          ) : null}
-        </Row>
-
-        {/* One word, closed, where an officer has already reviewed this. It is
-            the difference between a value the machine read and one a person
-            stood behind, and it must not need a tap to discover. */}
-        {corrected && !open ? (
-          <Txt variant="caption" color={colors.info} style={{ marginTop: 2 }}>
-            Confirmed by the inspector
-          </Txt>
-        ) : null}
-      </Pressable>
-
-      {open && corrected ? (
+      {corrected ? (
         <View style={styles.provenance}>
           <Row gap={6}>
             <Ionicons name="person-outline" size={12} color={colors.info} />
@@ -657,7 +604,7 @@ export function ExtractedFieldCard({
         Co." is obvious in one glance at the pixels and invisible in a list. So
         it is a bordered target now rather than a faint blue link.
       */}
-      {open && (onViewEvidence || onReview) ? (
+      {onViewEvidence || onReview ? (
         <Row gap={spacing.sm} style={{ marginTop: spacing.md }}>
           {onViewEvidence && field.boundingBox ? (
             <Pressable

@@ -81,6 +81,8 @@ export function ResultScreen() {
 
   const [tab, setTab] = useState<Tab>('fields');
   const [evidenceFor, setEvidenceFor] = useState<ExtractedField | null>(null);
+  /** The review list starts folded — see the note where it is rendered. */
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const pending = useMemo(() => fieldsNeedingReview(analysis), [analysis]);
 
@@ -173,14 +175,41 @@ export function ResultScreen() {
         */}
         {pending.length > 0 ? (
           <View style={styles.reviewBlock}>
-            <Row gap={spacing.sm} align="center" style={{ marginBottom: spacing.sm }}>
-              <Ionicons name="create-outline" size={16} color={colors.warning} />
-              <Txt variant="bodyStrong" style={{ flex: 1 }}>
-                {pluralize(pending.length, 'declaration')} need your review
-              </Txt>
-            </Row>
+            {/*
+              Folded, and it is the *list* that folds rather than the cards
+              below it.
 
-            {pending.map((field, index) => (
+              The heading is the part that has to be seen — an officer must know
+              at a glance that three declarations are waiting, on a screen they
+              may be about to finalize from. Which three is the detail, and on a
+              label with eight of them the open list pushed the verdict and the
+              declarations off the screen entirely.
+            */}
+            <Pressable
+              onPress={() => setReviewOpen((current) => !current)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                reviewOpen ? 'Hide the declarations awaiting review' : 'Show which declarations await review'
+              }
+              accessibilityState={{ expanded: reviewOpen }}
+              style={({ pressed }) => (pressed ? { opacity: 0.7 } : undefined)}
+            >
+              <Row gap={spacing.sm} align="center">
+                <Ionicons name="create-outline" size={16} color={colors.warning} />
+                <Txt variant="bodyStrong" style={{ flex: 1 }}>
+                  {pluralize(pending.length, 'declaration')} need your review
+                </Txt>
+                <Ionicons
+                  name={reviewOpen ? 'chevron-up' : 'chevron-down'}
+                  size={16}
+                  color={colors.warning}
+                />
+              </Row>
+            </Pressable>
+
+            {reviewOpen ? <View style={{ height: spacing.sm }} /> : null}
+
+            {reviewOpen ? pending.map((field, index) => (
               <Pressable
                 key={field.key}
                 onPress={() => navigation.navigate('Review')}
@@ -202,7 +231,7 @@ export function ResultScreen() {
                 <ConfidencePill confidence={field.confidence} />
                 <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
               </Pressable>
-            ))}
+            )) : null}
           </View>
         ) : null}
 

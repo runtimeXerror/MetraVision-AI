@@ -3,7 +3,8 @@ import { useNavigation } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 
-import { ConfidencePill, EvidenceView } from '../../components/domain';
+import { ConfidencePill, EvidenceView, ImageThumb } from '../../components/domain';
+import { ImageViewer } from '../../components/ImageViewer';
 import { Input } from '../../components/forms';
 import { ActionBar, Body, Notice, Screen, ScreenHeader } from '../../components/layout';
 import { Badge, Button, Card, Disclosure, EmptyState, Row, Txt } from '../../components/ui';
@@ -63,6 +64,8 @@ export function ReviewScreen() {
   const [draft, setDraft] = useState('');
   const [comment, setComment] = useState('');
   const [editing, setEditing] = useState(false);
+  /** Which photographed face the full-screen viewer opens on; `null` is closed. */
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
   const total = analysis?.fields.length ?? 0;
   const decided = total - pending.length;
@@ -249,11 +252,38 @@ export function ReviewScreen() {
               <View style={{ marginTop: spacing.md }}>
                 <EvidenceView image={sourceImage} field={current} height={200} />
               </View>
+            ) : images.length > 0 ? (
+              /*
+                Nothing was found, so there is no box to draw — and the screen
+                went blank below the red panel, leaving two thirds of it empty
+                while asking the officer to decide whether a declaration is
+                absent.
+
+                The faces they photographed are exactly the material for that
+                decision. A declaration is only missing if it is missing from
+                the whole package, and the first thing to check is which faces
+                are even in evidence. They open full size.
+              */
+              <View style={{ marginTop: spacing.md }}>
+                <Txt variant="overline" color={colors.textFaint} style={{ marginBottom: spacing.sm }}>
+                  Faces photographed
+                </Txt>
+                <Row gap={spacing.sm} wrap>
+                  {images.map((image, position) => (
+                    <ImageThumb
+                      key={image.id}
+                      image={image}
+                      size={72}
+                      onPress={() => setViewerIndex(position)}
+                    />
+                  ))}
+                </Row>
+              </View>
             ) : null}
 
             <Txt variant="caption" color={colors.textMuted} style={{ marginTop: spacing.md }}>
               {missing
-                ? 'Check the package itself before confirming. A declaration printed on a face that was not photographed is not a missing declaration.'
+                ? 'A declaration printed on a face nobody photographed is not a missing declaration.'
                 : 'Check this against the package. If it matches, accept it.'}
             </Txt>
           </Card>
@@ -291,32 +321,60 @@ export function ReviewScreen() {
             </Card>
           ) : (
             <>
-              {/* The answer that is right most of the time, sized accordingly. */}
+              {/*
+                ── ONE PRIMARY, AND IT ANSWERS THE QUESTION BEING ASKED ────
+
+                The primary used to be "Accept — this is what it says" in both
+                cases, and `disabled` whenever nothing had been read. So on a
+                declaration the recogniser could not find — which is most of
+                what reaches this screen — the largest, most prominent thing on
+                it was a dead grey bar, and the answer that is actually correct
+                most of the time ("no, it really is not printed on this pack")
+                was the middle one of three small tiles underneath.
+
+                An officer met a screen whose main control could not be pressed
+                and whose right answer was hidden among alternatives.
+
+                There is one question here — *is this what the package says?* —
+                and it has one confirming answer either way. When a value was
+                read, confirming means accepting it. When none was, confirming
+                means the declaration is absent. Same decision, same position,
+                same weight; only the wording changes, and nothing is ever
+                disabled.
+              */}
               <Button
-                title="Accept — this is what it says"
-                icon="checkmark-circle"
+                title={missing ? 'Confirm — not on the package' : 'Accept — this is what it says'}
+                icon={missing ? 'close-circle' : 'checkmark-circle'}
                 size="lg"
                 fullWidth
                 loading={submitting}
-                disabled={missing}
                 style={{ marginTop: spacing.md }}
-                onPress={() => void submit('accepted', current.aiValue)}
+                onPress={() =>
+                  missing
+                    ? void submit('marked_unavailable', null)
+                    : void submit('accepted', current.aiValue)
+                }
               />
 
-              {/* The three less common answers, equal to each other and quieter. */}
+              {/*
+                Two alternatives, not three. The third was always the primary's
+                own opposite — "Not on pack" beside "Accept" — and putting a
+                decision and its negation on two different rungs of the same
+                screen is what made four controls read as a menu to be worked
+                through rather than a question to be answered.
+
+                What is left is genuinely secondary: the officer can see the
+                declaration and it differs from the reading, or the photograph
+                is not good enough to tell.
+              */}
               <Row gap={spacing.sm} style={{ marginTop: spacing.sm }}>
                 <Choice
                   icon="create-outline"
-                  label="Correct it"
+                  label={missing ? 'It is on the pack' : 'Correct it'}
                   onPress={() => {
                     setDraft(current.aiValue ?? '');
                     setEditing(true);
                   }}
-                />
-                <Choice
-                  icon="close-circle-outline"
-                  label="Not on pack"
-                  onPress={() => void submit('marked_unavailable', null)}
                 />
                 <Choice
                   icon="camera-outline"
@@ -348,12 +406,11 @@ export function ReviewScreen() {
             />
           ) : null}
 
-          <Row gap={spacing.sm} align="center" style={{ marginTop: spacing.lg }}>
-            <Ionicons name="shield-outline" size={13} color={colors.textFaint} />
-            <Txt variant="caption" color={colors.textFaint} style={{ flex: 1 }}>
-              What the model read is kept on the record beside your decision.
-            </Txt>
-          </Row>
+          {/* "What the model read is kept on the record beside your decision"
+              stood here, on every one of twenty declarations. It is true, it is
+              a property of the system rather than of this decision, and an
+              officer reads it once. It belongs in the record's own provenance
+              line, which already says it per declaration. */}
         </Body>
       </KeyboardAvoidingView>
 
@@ -368,6 +425,13 @@ export function ReviewScreen() {
           />
         </ActionBar>
       ) : null}
+
+      <ImageViewer
+        images={images}
+        startIndex={viewerIndex ?? 0}
+        visible={viewerIndex !== null}
+        onClose={() => setViewerIndex(null)}
+      />
     </Screen>
   );
 }
