@@ -44,8 +44,8 @@ export function AnalysisScreen() {
   const started = useRef(false);
 
   const start = useCallback(async () => {
-    if (!inspectionId) return;
-
+    // A missing id is handed to the store rather than returned on, so it comes
+    // back as a failed run the inspector can see and act on.
     const ok = await run(inspectionId, images);
     if (ok) {
       // Replace, so the back gesture from Result does not re-enter processing.
@@ -64,7 +64,11 @@ export function AnalysisScreen() {
       <ScreenHeader
         title="Analysing"
         subtitle="Step 4 of 5 · Reading declarations"
-        onBack={status === 'error' ? () => navigation.goBack() : undefined}
+        // A way off this screen whenever there is no scan actually in flight.
+        // Swipe-back is disabled here on purpose, so this button is the only
+        // exit — offering it for the error case alone meant any other resting
+        // state, an unstartable run above all, was a screen with no way out.
+        onBack={status === 'running' ? undefined : () => navigation.goBack()}
       />
       <StepIndicator steps={INSPECTION_STEPS} current={3} />
 

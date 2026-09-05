@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useState, useEffect } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { confirm } from '../../components/Dialog';
+import { ZoomableImage } from '../../components/ZoomableImage';
 
 import { ImageThumb } from '../../components/domain';
 import { ActionBar, Body, Screen, ScreenHeader, StepIndicator } from '../../components/layout';
@@ -315,7 +316,7 @@ export function CaptureScreen() {
 
           <View style={styles.previewBody}>
             {preview?.uri ? (
-              <Image source={{ uri: preview.uri }} style={styles.previewImage} resizeMode="contain" />
+              <ZoomableImage uri={preview.uri} style={styles.previewImage} />
             ) : (
               <Txt variant="body" color={colors.navyTint} center>
                 No image data available for this capture.
@@ -329,6 +330,13 @@ export function CaptureScreen() {
                 {formatRelative(preview.capturedAt)} ·{' '}
                 {preview.source === 'camera' ? 'Camera' : 'Gallery'}
                 {preview.fileSize ? ` · ${formatBytes(preview.fileSize)}` : ''}
+              </Txt>
+
+              {/* Pinch is not a discoverable gesture on a picture that looks
+                  static, and an inspector who does not know the detail is
+                  reachable retakes the photograph instead of opening it. */}
+              <Txt variant="caption" color={colors.navyTint} style={{ marginBottom: spacing.md }}>
+                Pinch or double-tap the image to zoom in on a declaration.
               </Txt>
 
               <Row gap={spacing.md}>

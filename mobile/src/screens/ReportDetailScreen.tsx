@@ -178,7 +178,6 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
           <View style={{ marginTop: spacing.md }}>
             <VerdictPanel
               status={analysis.compliance.status}
-              score={analysis.compliance.score}
               ruleSetLabel={analysis.compliance.ruleSetLabel}
             />
             {/* The extent of the examination, directly under the verdict it

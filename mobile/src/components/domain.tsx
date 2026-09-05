@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Pressable,
   type StyleProp,
@@ -41,8 +41,9 @@ import {
   timestampParts,
 } from '../utils/format';
 
+import { ImageViewer } from './ImageViewer';
 import { RemoteImage } from './offline';
-import { Badge, Card, Meter, Row, Skeleton, Txt } from './ui';
+import { Badge, Card, Row, Skeleton, Txt } from './ui';
 
 /**
  * Domain-aware components — the pieces that know what an inspection is.
@@ -75,16 +76,35 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
 /**
  * The large verdict panel at the top of the result screen.
  *
- * Colour is never the only signal: the icon, the heading and the score all
- * carry the verdict independently.
+ * Colour is never the only signal: the icon and the heading each carry the
+ * verdict independently.
+ *
+ * ── THE PERCENTAGE THAT USED TO BE HERE ─────────────────────────────────
+ *
+ * "Compliance score 67%", over a meter. Neither an inspector nor anyone else
+ * could say what it was 67% *of*, and the true answer is not something a
+ * percentage can carry: it is the share of the rule checks the engine was able
+ * to decide that this package met — excluding every rule that did not apply to
+ * the commodity, and every one still waiting on a measurement no part of this
+ * system takes. On the corpus package that is four out of six, with fourteen
+ * checks outside the fraction entirely.
+ *
+ * Printed as a bare percentage next to a verdict, it reads as a grade — as
+ * though the package were 67% legal. It is not, and no packaged commodity is;
+ * a missing MRP is a contravention whatever the other twenty checks said.
+ *
+ * So the number is gone from here and the counts it was hiding are stated
+ * plainly by `ComplianceTally`, directly beneath this panel on all three
+ * screens that show it: declarations read, checks passed, checks failed, with
+ * the not-applicable ones named rather than silently dropped. The score is
+ * still computed and still stored on the record — it is a defensible figure
+ * for an aggregate over many inspections, which is where it now appears.
  */
 export function VerdictPanel({
   status,
-  score,
   ruleSetLabel,
 }: {
   status: ComplianceStatus;
-  score: number;
   ruleSetLabel: string;
 }) {
   const tone = complianceStatusTones[status];
@@ -103,18 +123,6 @@ export function VerdictPanel({
       <Txt variant="caption" color={colors.textMuted} center style={{ marginTop: spacing.xs }}>
         Assessed against {ruleSetLabel}
       </Txt>
-
-      <View style={{ width: '100%', marginTop: spacing.base }}>
-        <Row justify="space-between" style={{ marginBottom: 6 }}>
-          <Txt variant="overline" color={colors.textMuted}>
-            Compliance score
-          </Txt>
-          <Txt variant="bodyStrong" color={palette.fg}>
-            {score}%
-          </Txt>
-        </Row>
-        <Meter value={score / 100} tone={tone} height={8} />
-      </View>
     </View>
   );
 }
@@ -648,9 +656,39 @@ export function EvidenceView({
 }) {
   const box = field.boundingBox;
 
+  /**
+   * ── THE ONE PLACE ZOOM WAS MISSING ────────────────────────────────────
+   *
+   * This is the view an officer uses to answer the only question the review
+   * step asks — *is this what the package says?* — and it was the one image in
+   * the app that could not be magnified.
+   *
+   * It is also the image that most needs it. The declarations under review are
+   * the ones the recogniser was least sure of: a smudged MRP, a batch code in
+   * one-millimetre type, a date on a crimp. Rendered into a 200-pixel strip
+   * those are unreadable by construction, so the officer was being asked to
+   * confirm a reading against evidence they could not actually read, and the
+   * detail was in the file the whole time.
+   *
+   * The evidence box travels into the viewer with the photograph. Losing it on
+   * the way in would drop the thing this view exists to show — *where* on the
+   * label the value came from — at exactly the moment the officer went looking
+   * for it.
+   */
+  const [zoomed, setZoomed] = useState(false);
+  const canZoom = Boolean(image?.uri);
+
   return (
     <View>
-      <View style={[styles.evidenceFrame, { height }]}>
+      <Pressable
+        onPress={() => setZoomed(true)}
+        disabled={!canZoom}
+        accessibilityRole={canZoom ? 'button' : 'image'}
+        accessibilityLabel={
+          canZoom ? `Open the ${imageSideLabels[image!.side]} photograph full screen` : undefined
+        }
+        style={({ pressed }) => [styles.evidenceFrame, { height }, pressed && { opacity: 0.9 }]}
+      >
         {image?.uri ? (
           <RemoteImage uri={image.uri} style={StyleSheet.absoluteFill} resizeMode="contain" />
         ) : (
@@ -682,11 +720,29 @@ export function EvidenceView({
             </View>
           </View>
         ) : null}
-      </View>
+
+        {/* The affordance, on the image rather than as a line of text under it.
+            A caption saying "tap to zoom" is a caption competing with the
+            photograph; a magnifier in the corner is the control itself. */}
+        {canZoom ? (
+          <View style={styles.evidenceZoom} pointerEvents="none">
+            <Ionicons name="expand-outline" size={14} color={colors.textInverse} />
+          </View>
+        ) : null}
+      </Pressable>
 
       <Txt variant="caption" color={colors.textMuted} style={{ marginTop: spacing.sm }}>
         {image ? `${imageSideLabels[image.side]} · captured ${formatRelative(image.capturedAt)}` : 'No source image'}
       </Txt>
+
+      {image ? (
+        <ImageViewer
+          images={[image]}
+          visible={zoomed}
+          onClose={() => setZoomed(false)}
+          highlight={box}
+        />
+      ) : null}
     </View>
   );
 }
@@ -869,6 +925,18 @@ export function Avatar({
 }
 
 const styles = StyleSheet.create({
+  /** The magnifier badge on an evidence frame. */
+  evidenceZoom: {
+    position: 'absolute',
+    right: spacing.sm,
+    bottom: spacing.sm,
+    width: 26,
+    height: 26,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
   ordinal: {
     minWidth: 22,
     height: 22,

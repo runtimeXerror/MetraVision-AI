@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { imageSideLabels } from '../constants/labels';
 import { colors, radius, spacing } from '../constants/theme';
-import type { ProductImage } from '../types';
+import type { BoundingBox, ProductImage } from '../types';
 
 import { ZoomableImage } from './ZoomableImage';
 import { Txt } from './ui';
@@ -38,12 +38,23 @@ export function ImageViewer({
   startIndex = 0,
   visible,
   onClose,
+  highlight,
 }: {
   images: ProductImage[];
   /** Which photograph the officer tapped. */
   startIndex?: number;
   visible: boolean;
   onClose: () => void;
+  /**
+   * Where on the photograph a declaration was read, as a fraction of the frame.
+   *
+   * Carried through from the evidence view so magnifying a reading does not
+   * lose the one thing the evidence view was for: *where* on the label the
+   * value came from. Only meaningful for a single photograph, so it is dropped
+   * as soon as the officer pages to another one — the box belongs to the image
+   * it was measured on.
+   */
+  highlight?: BoundingBox;
 }) {
   const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(startIndex);
@@ -103,6 +114,23 @@ export function ImageViewer({
           // A single tap on the photograph closes, the way a lightbox does.
           // Pinch, drag and double-tap-to-zoom belong to `ZoomableImage`.
           onSingleTap={onClose}
+          overlay={
+            // Only on the photograph it was measured on. Paging away and still
+            // drawing it would put the box over a face it says nothing about.
+            highlight && index === startIndex ? (
+              <View
+                style={[
+                  styles.highlight,
+                  {
+                    left: `${highlight.x * 100}%`,
+                    top: `${highlight.y * 100}%`,
+                    width: `${highlight.width * 100}%`,
+                    height: `${highlight.height * 100}%`,
+                  },
+                ]}
+              />
+            ) : null
+          }
         />
 
         {/* Paging. Buttons rather than a swipe: the surface underneath is
@@ -193,6 +221,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   image: { flex: 1 },
+  /**
+   * The evidence box, on a black ground.
+   *
+   * Amber rather than the app's accent blue: this sits over a photograph whose
+   * colours are whatever the packet happened to be, and amber is the one hue
+   * that stays visible against printed labels, foil and shadow alike.
+   */
+  highlight: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: '#FBBF24',
+    borderRadius: 3,
+  },
   footer: {
     position: 'absolute',
     bottom: 0,

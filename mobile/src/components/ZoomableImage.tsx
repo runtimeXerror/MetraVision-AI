@@ -77,9 +77,19 @@ export interface ZoomableImageProps {
    * photograph is being dragged around.
    */
   onSingleTap?: () => void;
+  /**
+   * Drawn over the photograph, under the same pan and zoom.
+   *
+   * For the evidence box: the frame showing where on the label a declaration
+   * was read. It has to be transformed with the image and not merely laid over
+   * the frame, or the moment the officer zooms in to check a reading the box
+   * slides off the words it is pointing at — which is worse than no box, because
+   * it points confidently at the wrong thing.
+   */
+  overlay?: React.ReactNode;
 }
 
-export function ZoomableImage({ uri, style, onSingleTap }: ZoomableImageProps) {
+export function ZoomableImage({ uri, style, onSingleTap, overlay }: ZoomableImageProps) {
   const cachedUri = useCachedUri(uri);
 
   // The animated values drive the view; the refs are what the gesture maths
@@ -308,6 +318,20 @@ export function ZoomableImage({ uri, style, onSingleTap }: ZoomableImageProps) {
           { transform: [{ translateX }, { translateY }, { scale }] },
         ]}
       />
+
+      {overlay ? (
+        // The same transform, in the same order, over a layer the same size as
+        // the image. `pointerEvents="none"` so it never intercepts a pinch.
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { transform: [{ translateX }, { translateY }, { scale }] },
+          ]}
+        >
+          {overlay}
+        </Animated.View>
+      ) : null}
     </View>
   );
 }

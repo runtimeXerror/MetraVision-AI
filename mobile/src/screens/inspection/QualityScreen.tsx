@@ -1,8 +1,10 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useMemo, useState, useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ImageThumb, QualityReport } from '../../components/domain';
+import { ImageViewer } from '../../components/ImageViewer';
 import { ActionBar, Body, Notice, Screen, ScreenHeader, StepIndicator } from '../../components/layout';
 import { Badge, Button, Card, EmptyState, Row, Txt } from '../../components/ui';
 import { imageSideLabels, qualityRatingLabels, qualityRatingTones } from '../../constants/labels';
@@ -45,6 +47,8 @@ export function QualityScreen() {
   const [uploadError, setUploadError] = useState<ApiError | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(images[0]?.id ?? null);
+  /** The selected photograph, full screen. See the control in the report header. */
+  const [zoomed, setZoomed] = useState(false);
   const selected = images.find((image) => image.id === selectedId) ?? images[0];
 
   const worstScore = useMemo(() => lowestQualityScore(images), [images]);
@@ -159,7 +163,23 @@ export function QualityScreen() {
         {selected?.quality ? (
           <Card>
             <Row justify="space-between" style={{ marginBottom: spacing.sm }}>
-              <Txt variant="heading">{imageSideLabels[selected.side]}</Txt>
+              {/* Tapping a thumbnail selects it — that is what drives this
+                  report — so magnifying needs a control of its own rather than
+                  a second meaning for the same tap. It belongs here anyway:
+                  the officer is being asked whether this photograph is good
+                  enough to read a declaration from, and they cannot answer that
+                  from a 72-pixel square. */}
+              <Pressable
+                onPress={() => setZoomed(true)}
+                accessibilityRole="button"
+                accessibilityLabel="View this photograph full screen"
+                hitSlop={8}
+              >
+                <Row gap={6} align="center">
+                  <Txt variant="heading">{imageSideLabels[selected.side]}</Txt>
+                  <Ionicons name="expand-outline" size={15} color={colors.accent} />
+                </Row>
+              </Pressable>
               <Badge
                 label={
                   selected.quality.overallScore >= 0.9
@@ -270,6 +290,14 @@ export function QualityScreen() {
           />
         </Row>
       </ActionBar>
+
+      {selected ? (
+        <ImageViewer
+          images={[selected]}
+          visible={zoomed}
+          onClose={() => setZoomed(false)}
+        />
+      ) : null}
     </Screen>
   );
 }

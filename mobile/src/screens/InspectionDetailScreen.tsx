@@ -101,7 +101,6 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
           <>
             <VerdictPanel
               status={analysis.compliance.status}
-              score={analysis.compliance.score}
               ruleSetLabel={analysis.compliance.ruleSetLabel}
             />
             {/* How much was examined to reach that verdict. See the note at

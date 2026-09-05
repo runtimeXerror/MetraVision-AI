@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -73,6 +73,61 @@ export function Card({ padded = true, flat, style, children, ...rest }: CardProp
 
 export function Divider({ style }: { style?: StyleProp<ViewStyle> }) {
   return <View style={[styles.divider, style]} />;
+}
+
+/**
+ * A titled row that opens to reveal what is under it.
+ *
+ * The screens in this app carry a lot that an inspector must be able to reach
+ * and does not need in front of them: the engine version a verdict was reached
+ * under, the confidence a value was read at, the disclaimer the report is
+ * issued subject to. Laid out flat, those turned the result into a wall no one
+ * reads — which is worse than hiding them, because a screen that is skimmed
+ * past is a screen whose warnings do not land either.
+ *
+ * So: one line by default, everything on tap. Nothing is removed, and the
+ * count in the header says how much is folded away.
+ */
+export function Disclosure({
+  title,
+  count,
+  icon,
+  tone,
+  defaultOpen = false,
+  children,
+  style,
+}: {
+  title: string;
+  count?: number;
+  icon?: keyof typeof Ionicons.glyphMap;
+  /** Tints the row — for a disclosure that is itself a warning. */
+  tone?: Tone;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const ink = tone ? toneColors[tone].fg : colors.textMuted;
+
+  return (
+    <View style={[styles.disclosure, tone && { backgroundColor: toneColors[tone].bg }, style]}>
+      <Pressable
+        onPress={() => setOpen((value) => !value)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={styles.disclosureHead}
+      >
+        {icon ? <Ionicons name={icon} size={16} color={ink} /> : null}
+        <Text style={[typography.label, { color: ink, flex: 1 }]}>
+          {title}
+          {count !== undefined ? ` · ${count}` : ''}
+        </Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={ink} />
+      </Pressable>
+
+      {open ? <View style={styles.disclosureBody}>{children}</View> : null}
+    </View>
+  );
 }
 
 /** Section heading with an optional trailing action. */
@@ -455,6 +510,26 @@ export function Meter({
 }
 
 const styles = StyleSheet.create({
+  disclosure: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  disclosureHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    // 48dp: the floor every touch target in this app is held to.
+    minHeight: 48,
+    paddingHorizontal: spacing.base,
+  },
+  disclosureBody: {
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.base,
+    paddingTop: spacing.xs,
+  },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,

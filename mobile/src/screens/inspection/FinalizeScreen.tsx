@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 
 import { ComplianceBadge, ImageThumb } from '../../components/domain';
+import { ImageViewer } from '../../components/ImageViewer';
 import { Input } from '../../components/forms';
 import { ActionBar, Body, Notice, Screen, ScreenHeader } from '../../components/layout';
 import { Button, Card, EmptyState, Row, SectionHeader, Txt } from '../../components/ui';
@@ -22,6 +23,9 @@ import { formatDateTime, pluralize } from '../../utils/format';
 /** Final confirmation before the inspection becomes a record. */
 export function FinalizeScreen() {
   const navigation = useNavigation();
+
+  /** Which evidence photograph the full-screen viewer opens on; `null` is closed. */
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
   const inspector = useAuthStore((state) => state.inspector);
   const analysis = useAnalysisStore((state) => state.analysis);
@@ -164,8 +168,13 @@ export function FinalizeScreen() {
             </Card>
           ) : (
             <Row gap={spacing.md} wrap>
-              {images.map((image) => (
-                <ImageThumb key={image.id} image={image} size={72} />
+              {images.map((image, position) => (
+                <ImageThumb
+                  key={image.id}
+                  image={image}
+                  size={72}
+                  onPress={() => setViewerIndex(position)}
+                />
               ))}
             </Row>
           )}
@@ -294,6 +303,13 @@ export function FinalizeScreen() {
           onPress={() => void onFinalize()}
         />
       </ActionBar>
+
+      <ImageViewer
+        images={images}
+        startIndex={viewerIndex ?? 0}
+        visible={viewerIndex !== null}
+        onClose={() => setViewerIndex(null)}
+      />
     </Screen>
   );
 }

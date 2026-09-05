@@ -3,8 +3,8 @@ import React, { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { colors, spacing } from '../constants/theme';
-import type { ComplianceIssue, ScanRecord } from '../types';
-import { formatConfidence, pluralize } from '../utils/format';
+import type { ComplianceIssue } from '../types';
+import { formatConfidence } from '../utils/format';
 
 import { Badge, Card, Row, Txt } from './ui';
 
@@ -24,86 +24,6 @@ import { Badge, Card, Row, Txt } from './ui';
  * printed unchanged. Nothing in this file composes an explanation of the law.
  * ────────────────────────────────────────────────────────────────────────────
  */
-
-function MetaItem({ label, value }: { label: string; value: string }) {
-  return (
-    <View>
-      <Txt variant="overline" color={colors.textFaint}>
-        {label}
-      </Txt>
-      <Txt variant="bodyStrong" style={{ marginTop: 2 }}>
-        {value}
-      </Txt>
-    </View>
-  );
-}
-
-/**
- * The rule engine's own account of the scan.
- *
- * Counts rather than a percentage, because the interesting number is not "how
- * compliant" — it is how many requirements the system was actually able to
- * assess. A package where twelve rules did not apply and two could not be
- * measured has had six real checks run on it, and an inspector deciding whether
- * to open a file needs to know that before anything else.
- */
-export function LegalSummaryCard({ scan }: { scan: ScanRecord }) {
-  const { summary } = scan;
-  const partialCapture = scan.captureCompleteness < 0.7;
-
-  return (
-    <Card style={{ marginTop: spacing.md }}>
-      <Row justify="space-between" align="center">
-        <Txt variant="overline" color={colors.textFaint}>
-          Legal Metrology checks
-        </Txt>
-        <Txt variant="caption" color={colors.textFaint}>
-          {scan.ruleSetVersion}
-        </Txt>
-      </Row>
-
-      <Row justify="space-between" style={{ marginTop: spacing.md }} wrap gap={spacing.md}>
-        <MetaItem label="Performed" value={`${summary.totalChecks}`} />
-        <MetaItem label="Passed" value={`${summary.compliant}`} />
-        <MetaItem label="Potential violations" value={`${summary.violations}`} />
-        <MetaItem label="Review required" value={`${summary.reviewRequired}`} />
-        <MetaItem label="Not applicable" value={`${summary.notApplicable}`} />
-      </Row>
-
-      {summary.pendingCapability > 0 ? (
-        <Row align="flex-start" gap={spacing.sm} style={{ marginTop: spacing.md }}>
-          <Ionicons
-            name="construct-outline"
-            size={14}
-            color={colors.textFaint}
-            style={{ marginTop: 2 }}
-          />
-          <Txt variant="caption" color={colors.textMuted} style={{ flex: 1 }}>
-            {pluralize(summary.pendingCapability, 'check')} need the printed text measured in
-            millimetres, which a photograph alone cannot give — check the font size against the
-            package itself.
-          </Txt>
-        </Row>
-      ) : null}
-
-      {partialCapture ? (
-        <Row align="flex-start" gap={spacing.sm} style={{ marginTop: spacing.sm }}>
-          <Ionicons
-            name="camera-outline"
-            size={14}
-            color={colors.warning}
-            style={{ marginTop: 2 }}
-          />
-          <Txt variant="caption" color={colors.textMuted} style={{ flex: 1 }}>
-            Only part of the package was captured. A declaration that was not found has been sent
-            for review rather than recorded as missing — photograph the remaining faces to settle
-            it.
-          </Txt>
-        </Row>
-      ) : null}
-    </Card>
-  );
-}
 
 /**
  * One finding, expandable to the evidence and the provision behind it.
