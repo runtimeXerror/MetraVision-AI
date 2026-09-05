@@ -45,6 +45,33 @@ function metaFor(report: Report, amendment?: ReportAmendment): DocumentMeta {
   };
 }
 
+/**
+ * How a rule check reads in a document served on a dealer.
+ *
+ * Not "Pass", "Fail", "Warning", "N/A" — that is the vocabulary of a test
+ * runner. The person reading this is being told whether a legal requirement was
+ * met, and "Needs review" has to be unmistakably distinct from "Not compliant",
+ * because only one of the two is an adverse finding against them.
+ *
+ * A declaration with no check against it reads "Not assessed" rather than being
+ * left blank: an empty cell in a table of verdicts invites the reader to supply
+ * their own, and the engine reaching no conclusion is itself worth stating.
+ */
+function resultCell(check?: { result: string }): string {
+  switch (check?.result) {
+    case 'pass':
+      return 'Compliant';
+    case 'fail':
+      return '<b>Not compliant</b>';
+    case 'warning':
+      return 'Needs review';
+    case 'not_applicable':
+      return '<span class="muted">Not applicable</span>';
+    default:
+      return '<span class="muted">Not assessed</span>';
+  }
+}
+
 /** A value with its superseded original printed underneath, where amended. */
 function amendedCell(current: string | null, original: string | null): string {
   const shown = current === null || current === '' ? '<span class="muted">Not declared</span>' : esc(current);
@@ -138,40 +165,61 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
 
   /* Declarations */
   if (analysis) {
+    /**
+     * Each declaration's own rule check.
+     *
+     * The report used to print two tables: the declarations, and then every
+     * rule check the engine ran. A reader wanting to know whether the net
+     * quantity was compliant read the value in the first and then hunted for
+     * the matching rule in the second — twenty rows, most of them recording
+     * that a rule did not apply. The verdict belongs against the declaration
+     * it is about.
+     */
+    const resultByField = new Map<string, (typeof analysis.compliance.checks)[number]>();
+    for (const check of analysis.compliance.checks) {
+      for (const key of check.relatedFieldKeys) {
+        if (!resultByField.has(key)) resultByField.set(key, check);
+      }
+    }
+
     const rows = analysis.fields
-      .map((field) => {
+      .map((field, index) => {
         const recorded = effectiveValue(field);
         const amended = amendment?.fieldValues?.[field.key];
         const value = amended ?? recorded;
 
-        const provenance = amended
-          ? 'Amended at issue'
+        const source = amended
+          ? 'Amended by the officer'
           : field.reviewAction === 'edited'
-            ? 'Corrected by inspector'
+            ? 'Corrected by the officer'
             : field.reviewAction === 'marked_unavailable'
-              ? 'Marked absent by inspector'
+              ? 'Marked absent by the officer'
               : field.reviewAction === 'accepted'
-                ? 'Confirmed by inspector'
-                : 'Not reviewed';
+                ? 'Confirmed by the officer'
+                : // Read confidence belongs here and only here. It qualifies an
+                  // automated reading and says nothing about a value a person
+                  // put their name to, so it was misleading as a column of its
+                  // own with a figure printed on every row.
+                  `Read automatically · ${formatConfidence(field.confidence)}`;
 
         return `<tr>
+          <td class="num faint">${index + 1}</td>
           <td>${esc(field.label)}${field.required ? '<br /><span class="faint">Mandatory</span>' : ''}</td>
           <td>${amendedCell(value, amended ? recorded : null)}</td>
-          <td class="num">${esc(formatConfidence(field.confidence))}</td>
-          <td class="faint">${provenance}</td>
+          <td>${resultCell(resultByField.get(field.key))}</td>
+          <td class="faint">${source}</td>
         </tr>`;
       })
       .join('');
 
-    sections.push(`<h2>Declarations examined</h2>
+    sections.push(`<h2>Declarations</h2>
       <table>
-        <tr><th>Declaration</th><th>Value of record</th><th class="num">Read conf.</th><th>Provenance</th></tr>
+        <tr>
+          <th class="num">#</th><th>Declaration</th><th>Value of record</th>
+          <th>Result</th><th>Source</th>
+        </tr>
         ${rows}
-      </table>
-      <p class="faint" style="margin-top:6px">
-        Read confidence is the confidence of the automated extraction, not of the determination.
-        Where the officer confirmed, corrected or amended a value, the value of record is theirs.
-      </p>`);
+      </table>`);
 
     /* Findings */
     const violations = analysis.compliance.violations;
@@ -210,18 +258,43 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
               .join('')
       }`);
 
-    /* Checks — the audit trail behind the verdict. */
-    if (analysis.compliance.checks.length > 0) {
-      sections.push(`<h2>Checks performed (${analysis.compliance.checks.length})</h2>
+    /**
+     * ── WHAT IS LEFT OF "CHECKS PERFORMED" ──────────────────────────────
+     *
+     * The table is gone. Sixteen of its twenty rows restated, in rule codes,
+     * what the Declarations table above now says against each declaration in
+     * plain words; most of the rest recorded that a rule did not apply to this
+     * commodity, which is not a finding and does not belong in a document
+     * served on a dealer.
+     *
+     * What is kept is the part that had nowhere else to go: requirements that
+     * apply to the package as a whole rather than to any one declaration —
+     * principally the type-height and legibility rules of Rule 7 — and only
+     * where they were not satisfied. A rule that passed, or did not apply, adds
+     * nothing a reader can act on.
+     *
+     * Nothing adverse is lost by dropping the rest: an unsatisfied requirement
+     * is either a numbered finding above or is listed here.
+     */
+    const packageLevel = analysis.compliance.checks.filter(
+      (check) =>
+        check.relatedFieldKeys.length === 0 &&
+        check.result !== 'pass' &&
+        check.result !== 'not_applicable',
+    );
+
+    if (packageLevel.length > 0) {
+      sections.push(`<h2>Other requirements</h2>
         <table>
-          <tr><th>Rule</th><th>Check</th><th>Result</th><th>Observed</th></tr>
-          ${analysis.compliance.checks
+          <tr><th>Requirement</th><th>Rule</th><th>Result</th></tr>
+          ${packageLevel
             .map(
               (check) => `<tr>
+                <td>${esc(check.title)}${
+                  check.message ? `<br /><span class="faint">${esc(check.message)}</span>` : ''
+                }</td>
                 <td class="mono">${esc(check.ruleReference)}</td>
-                <td>${esc(check.title)}</td>
-                <td>${esc(check.result.replace('_', ' '))}</td>
-                <td>${check.observed ? esc(check.observed) : '<span class="muted">Not declared</span>'}</td>
+                <td>${resultCell(check)}</td>
               </tr>`,
             )
             .join('')}

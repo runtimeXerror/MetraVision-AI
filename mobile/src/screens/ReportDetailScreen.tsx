@@ -19,6 +19,7 @@ import { reportDocument } from '../services/reportService';
 import { effectiveValue } from '../store/analysisStore';
 import { useReportDraftStore } from '../store/reportDraftStore';
 import type { RootScreenProps } from '../navigation/types';
+import type { ComplianceCheck } from '../types';
 import { formatDateTime } from '../utils/format';
 
 /**
@@ -86,6 +87,20 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
   const { data: report, savedAt } = state.data;
   const inspection = report.snapshot;
   const analysis = inspection.analysis;
+
+  /**
+   * Each declaration's own rule check, by field key.
+   *
+   * Mirrors `reportDocument`, which builds the same map for the PDF's Result
+   * column. Built here rather than in the map callback so twenty declarations
+   * do not each walk the whole check list.
+   */
+  const resultByField = new Map<string, ComplianceCheck>();
+  for (const check of analysis?.compliance.checks ?? []) {
+    for (const key of check.relatedFieldKeys) {
+      if (!resultByField.has(key)) resultByField.set(key, check);
+    }
+  }
 
   return (
     <Screen>
@@ -219,13 +234,17 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
         {/* Declarations */}
         {analysis ? (
           <>
+            {/* "Declarations", not "Declarations Examined". Everything in this
+                document was examined; the word was doing no work. */}
             <SectionHeader
-              title={`Declarations Examined (${analysis.fields.length})`}
+              title={`Declarations (${analysis.fields.length})`}
               style={{ marginTop: spacing.xl }}
             />
             <Card>
               {analysis.fields.map((field, index) => {
                 const value = effectiveValue(field);
+                const check = resultByField.get(field.key);
+
                 return (
                   <View key={field.key}>
                     {index > 0 ? <View style={styles.hairline} /> : null}
@@ -238,11 +257,12 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
                         <Txt variant="caption" color={colors.textMuted} style={{ flex: 1 }}>
                           {index + 1}. {field.label}
                         </Txt>
-                        {field.reviewAction ? (
-                          <Txt variant="caption" color={colors.info}>
-                            Inspector confirmed
-                          </Txt>
-                        ) : null}
+                        {/* The rule verdict for this declaration, against the
+                            declaration. The exported PDF carries the same thing
+                            as a Result column — the screen an officer shows a
+                            dealer and the document that is filed have to say
+                            the same words in the same places. */}
+                        <ResultTag check={check} />
                       </Row>
                       <Txt
                         variant="bodyStrong"
@@ -254,6 +274,10 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
                       {field.reviewAction === 'edited' && field.aiValue ? (
                         <Txt variant="caption" color={colors.textFaint} style={{ marginTop: 2 }}>
                           Originally read as: {field.aiValue}
+                        </Txt>
+                      ) : field.reviewAction ? (
+                        <Txt variant="caption" color={colors.textFaint} style={{ marginTop: 2 }}>
+                          Confirmed by the officer
                         </Txt>
                       ) : null}
                     </View>
@@ -404,6 +428,30 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
         onClose={() => setViewerIndex(null)}
       />
     </Screen>
+  );
+}
+
+/**
+ * One declaration's rule verdict, as a word.
+ *
+ * "Pass" / "Fail" / "N/A" is test-runner vocabulary. A dealer reading this is
+ * being told whether a legal requirement was met, and "Needs review" has to be
+ * unmistakably distinct from "Not compliant" — only one of the two is an
+ * adverse finding against them.
+ *
+ * A passing declaration says nothing at all. On a list where most rows comply,
+ * printing "Compliant" twelve times turns the two that do not into something
+ * the eye has to hunt for; silence is what makes them findable.
+ */
+function ResultTag({ check }: { check?: { result: string } }) {
+  if (!check || check.result === 'pass' || check.result === 'not_applicable') return null;
+
+  const failed = check.result === 'fail';
+
+  return (
+    <Txt variant="caption" color={failed ? colors.danger : colors.warning}>
+      {failed ? 'Not compliant' : 'Needs review'}
+    </Txt>
   );
 }
 
