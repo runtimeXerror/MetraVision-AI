@@ -134,7 +134,8 @@ const CURRENCY_LINE = /(?:₹|\bRs\.?\b|\bINR\b|\bRupees\b)\s*[0-9OoQDlIi|ZSsbGT
  *
  * The rupee glyph is the least reliably recognised character on an Indian
  * label. It is a recent addition to most fonts, it is printed small, and it
- * comes back as `7`, `2`, `R`, `T` or `$` — or as nothing at all. On a line
+ * comes back as `7`, `2`, `R`, `T`, `z` or `$` — or as nothing at all. On a
+ * line
  * that has already identified itself as a price this is unambiguous: a single
  * stray character between the words "MRP" and an amount is not a quantity, a
  * count or part of the figure. It is the currency sign.
@@ -144,7 +145,7 @@ const CURRENCY_LINE = /(?:₹|\bRs\.?\b|\bINR\b|\bRupees\b)\s*[0-9OoQDlIi|ZSsbGT
  * `MRP: 7` are both left exactly as they are. Guessing wider than this on a
  * price is how a system invents a number and then accuses somebody with it.
  */
-const MISREAD_RUPEE = /(^|[\s:(\[])([72RTt$?|])\s+(?=\d)/;
+const MISREAD_RUPEE = /(^|[\s:(\[])([72RTtzZ$?|])\s+(?=\d)/;
 
 /**
  * A price line, kept whole and digit-repaired.
@@ -264,12 +265,33 @@ const DATE_LIKE =
   /\b(?:\d{1,2}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{2,4}|\d{1,2}\s*[/.-]\s*\d{4}|[A-Za-z]{3,9}\s*[\s/.-]\s*\d{4}|\d{4}\s*-\s*\d{1,2}|\d{1,2}\s*[/-]\s*\d{2}(?!\d))\b/;
 
 /**
+ * How much text may stand in for a date that could not be parsed.
+ *
+ * The fallback below is deliberate and has to be bounded. `MFD: ///` should
+ * reach the rule engine as the smudge that was printed, so the validator can
+ * say "this could not be read as a month and year" about the actual mark on
+ * the packet rather than about an empty string. But the same fallback,
+ * unbounded, turned a manufacturer's address into a manufacturing date.
+ *
+ * A printed month and year is short and has no prose in it. Twenty-four
+ * characters covers every real form — `12 December 2026` is sixteen — and a
+ * comma or four words is an address, a sentence, or a label's tail, none of
+ * which is a date however unreadable.
+ */
+const UNPARSED_DATE_MAX = 24;
+
+function looksLikeProse(text: string): boolean {
+  return text.includes(',') || text.trim().split(/\s+/).length > 3;
+}
+
+/**
  * The date portion of a declaration.
  *
- * Where a date is recognisable it is returned on its own; where it is not, the
- * remaining text is returned unchanged so the rule engine's date validator can
- * say "this could not be read as a month and year" about the text that was
- * actually printed, rather than about an empty string this stage invented.
+ * Where a date is recognisable it is returned on its own. Where it is not, a
+ * short unparseable remainder is passed through — see `UNPARSED_DATE_MAX` —
+ * and anything longer yields nothing at all, because a date field returning
+ * prose is worse than a date field returning nothing: the first reaches a
+ * report as a fact, the second reaches the inspector as a question.
  */
 function dateValue(after: string): ExtractedValue | null {
   // …but only where something was printed. `MFD.(P) &` leaves `(P) &`, which
@@ -277,7 +299,12 @@ function dateValue(after: string): ExtractedValue | null {
   if (!isValueBearing(after)) return null;
 
   const match = DATE_LIKE.exec(after);
-  return { value: (match?.[0] ?? after).trim() };
+  if (match) return { value: match[0].trim() };
+
+  const remainder = after.trim();
+  if (remainder.length > UNPARSED_DATE_MAX || looksLikeProse(remainder)) return null;
+
+  return { value: remainder };
 }
 
 /**
@@ -419,9 +446,24 @@ export const FIELD_SPECS: FieldSpec[] = [
       /\bdate\s+of\s+(?:manufactur\w*|packing|packaging|pack)\b/i,
       /\bmanufactur\w*\s+(?:date|on)\b/i,
       /\bpacked\s+(?:on|in)\b/i,
-      /\bmfg\.?\s*(?:date|dt)?\b/i,
-      /\bmfd\.?\s*(?:date|dt)?\b/i,
-      /\bpkd\.?\s*(?:date|dt)?\b/i,
+      /*
+       * `(?!\s*by\b)` on all three, and it is not a nicety.
+       *
+       * `FIELD_SPECS` is ordered by precedence and a line is claimed once, so
+       * this spec sees every line before the manufacturer spec below does —
+       * and "Mfd by Crispy Snacks Pvt Ltd," matched `\bmfd\b`. The date
+       * extractor then took the rest of the line, and a potato-crisp packet
+       * carrying no date at all was recorded as manufactured on
+       * "by Crispy Snacks Pvt Ltd,".
+       *
+       * That is the worst class of failure this system has: not a declaration
+       * missed, but one invented, on a record that then goes to a report. The
+       * package genuinely had no date — the finding should have been that it
+       * was absent.
+       */
+      /\bmfg\.?\s*(?:date|dt)?\b(?!\s*by\b)/i,
+      /\bmfd\.?\s*(?:date|dt)?\b(?!\s*by\b)/i,
+      /\bpkd\.?\s*(?:date|dt)?\b(?!\s*by\b)/i,
       // The wording of rule 6(1)(d) itself, which is what a careful packer
       // prints verbatim: "month and year in which the commodity is
       // manufactured or pre-packed". None of the abbreviations above matched

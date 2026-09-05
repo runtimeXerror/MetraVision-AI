@@ -11,6 +11,7 @@
     "dev:api": "npm --prefix backend run dev",
     "dev:ocr": "node scripts/ocr.mjs",
     "setup:ocr": "node scripts/setup-ocr.mjs",
+    "testing": "npm --prefix backend run testing --",
     "test": "npm --prefix backend test",
     "typecheck": "npm --prefix backend run typecheck",
     "lint": "npm --prefix backend run lint"

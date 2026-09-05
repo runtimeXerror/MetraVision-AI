@@ -1,0 +1,5 @@
+# Your test photographs, not repository content. A package worth keeping becomes
+# a corpus case under backend/tests/corpus/, which is committed.
+*
+!.gitignore
+!README.md
