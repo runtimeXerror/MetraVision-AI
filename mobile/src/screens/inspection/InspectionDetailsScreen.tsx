@@ -15,7 +15,7 @@ import { PRODUCT_CATEGORIES, type ProductCategory } from '../../types';
 import { useImageStore } from '../../store/imageStore';
 import { useAnalysisStore } from '../../store/analysisStore';
 import { useInspectionStore } from '../../store/inspectionStore';
-import { formatClock, formatDate } from '../../utils/format';
+import { formatDate, formatTime12 } from '../../utils/format';
 import { hasErrors, required, validate } from '../../utils/validation';
 
 export const INSPECTION_STEPS = ['Details', 'Images', 'Quality', 'Analysis', 'Result'];
@@ -101,10 +101,19 @@ export function InspectionDetailsScreen() {
    */
   const [now, setNow] = useState(() => new Date());
 
+  /**
+   * Ticking minutes, not seconds.
+   *
+   * A seconds hand re-rendered this whole form once a second — under the
+   * officer's fingers, while they typed — to animate a figure that is not the
+   * recorded time and that nobody reads to the second. The stamp on the record
+   * is the server's. This is context, and context does not need a running
+   * clock; it needs to be right when they glance at it.
+   */
   useFocusEffect(
     useCallback(() => {
       setNow(new Date());
-      const id = setInterval(() => setNow(new Date()), 1000);
+      const id = setInterval(() => setNow(new Date()), 15_000);
       return () => clearInterval(id);
     }, []),
   );
@@ -152,7 +161,7 @@ export function InspectionDetailsScreen() {
                 {/* Monospaced, or the digits change width as they tick and the
                     whole clock jitters sideways once a second. */}
                 <Txt variant="mono" style={[styles.clock, { marginTop: 3 }]}>
-                  {formatClock(now)}
+                  {formatTime12(now)}
                 </Txt>
               </View>
             </Row>
@@ -170,9 +179,17 @@ export function InspectionDetailsScreen() {
             have to fill in before they can photograph anything.
           */}
           <Card style={{ marginTop: spacing.md }}>
-            <Txt variant="overline" color={colors.textFaint} style={styles.group}>
-              Premises
-            </Txt>
+            {/* Symmetrical with the Product card below. Two groups where one
+                says "Optional" and the other says nothing leaves the officer
+                inferring the difference; saying both costs a word. */}
+            <Row justify="space-between" align="center" style={styles.group}>
+              <Txt variant="overline" color={colors.textFaint}>
+                Premises
+              </Txt>
+              <Txt variant="caption" color={colors.textFaint}>
+                Required
+              </Txt>
+            </Row>
 
             <Input
               label="Business / shop name"
@@ -224,7 +241,7 @@ export function InspectionDetailsScreen() {
               icon="cube-outline"
               value={details.productName ?? ''}
               onChangeText={(text) => setDetail('productName', text)}
-              hint="The scan also reads this from the label."
+              hint="Read from the label too, if left blank."
             />
 
             <Select<ProductCategory>
@@ -233,7 +250,10 @@ export function InspectionDetailsScreen() {
               value={details.productCategory}
               options={CATEGORY_OPTIONS}
               onChange={setCategory}
-              hint="Which declarations the package must carry follows from this. Left blank, the scan classifies it from the commodity name printed on the package."
+              // The consequence, not the mechanism. Which declarations are
+              // required follows from this — but an officer choosing from a
+              // list needs to know it matters, not how it is resolved.
+              hint="Sets which declarations are required. Left blank, the scan decides."
             />
 
             <Input
@@ -255,11 +275,13 @@ export function InspectionDetailsScreen() {
             />
           ) : null}
 
-          <Notice
-            icon="lock-closed-outline"
-            text="The inspection is filed to the departmental server the moment you continue, and is assigned an official reference number."
-            style={{ marginTop: spacing.md }}
-          />
+          {/* ── WHAT THIS SCREEN NO LONGER SAYS ────────────────────────
+              A notice stood here explaining that continuing files the record
+              and assigns a reference number. Both halves were already on the
+              screen — the button says Continue, and the identity card at the
+              top says "Assigned on continue" in the space the number will
+              occupy. It was a paragraph restating a form to somebody who fills
+              this one in twenty times a day. */}
 
           {/* Said before the officer fills the form in, not after they tap
               Continue and watch it fail.
