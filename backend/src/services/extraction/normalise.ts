@@ -114,6 +114,46 @@ export function unifyCurrency(text: string): string {
   return text.replace(RUPEE_FORMS, '₹');
 }
 
+/**
+ * Repairs the number that sits immediately before a unit token.
+ *
+ * `repairDigits` below is deliberately timid: it only touches a span that is
+ * already more digit than letter, because applied to ordinary text the same
+ * substitution turns "Oil" into "0i1". That guard is right, and it is also why
+ * `Net Wt. 5OO g` came back as `5OO g` — one digit against two letters, so the
+ * span was left alone and a 500 g package had no readable net quantity. `5O g`
+ * happened to survive it; `5OO g`, `1OO ml` and `2OO g` did not, and those are
+ * ordinary pack sizes.
+ *
+ * The narrower context is what makes the bolder repair safe. This only fires on
+ * a token that is *immediately followed by a recognised unit*, and only when
+ * every character in it is either a digit or a known digit confusion. "Vitamin
+ * B5" is untouched because nothing follows it that looks like a unit; "5OO g"
+ * is repaired because something does.
+ */
+export function repairQuantityDigits(text: string): DigitRepair {
+  let repaired = false;
+
+  const fixed = text.replace(
+    /\b([0-9OoQDlIi|ZSsbGTBgq][0-9OoQDlIi|ZSsbGTBgq,.]*)(\s*)(?=(?:kg|kgs|g|gm|gms|gr|mg|ml|l|ltr|ltrs|lt|litre|liter|litres|liters|cm|mm|m|N|No|Nos|pc|pcs|piece|pieces|pair|set|unit|units)\b)/gi,
+    (whole, token: string, gap: string) => {
+      // At least one character has to be a real digit already, or "No g" —
+      // a heading above a table — becomes "N0 g".
+      if (!/[0-9]/.test(token)) return whole;
+
+      const swapped = token.replace(
+        /[OoQDlIi|ZSsbGTBgq]/g,
+        (character) => DIGIT_CONFUSIONS[character] ?? character,
+      );
+
+      if (swapped !== token) repaired = true;
+      return swapped + gap;
+    },
+  );
+
+  return { text: fixed, repaired };
+}
+
 export interface DigitRepair {
   text: string;
   /** True when at least one character was substituted. */

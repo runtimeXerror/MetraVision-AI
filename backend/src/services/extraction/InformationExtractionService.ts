@@ -2,7 +2,17 @@ import type { EvidenceReference } from '../../compliance/types/Evidence';
 import type { AggregateOCRResult, OCRRegion } from '../ocr';
 
 import { firstAmount, normaliseLine, normaliseText, stripLabel } from './normalise';
-import { ALL_LABELS, FIELD_SPECS, type ExtractionMethod, type FieldSpec } from './patterns';
+import type { ProductCategory } from '../../types/domain';
+
+import { categoryFrom, commodityNounIn, type CommodityMatch } from './commodity';
+import {
+  ALL_LABELS,
+  FIELD_SPECS,
+  declaredElsewhereIn,
+  isPointerLine,
+  type ExtractionMethod,
+  type FieldSpec,
+} from './patterns';
 
 /**
  * ── INFORMATION EXTRACTION ──────────────────────────────────────────────────
@@ -96,6 +106,23 @@ export interface ExtractionResult {
   unclaimedLines: string[];
   /** Notes for the report about how a value was arrived at. */
   warnings: string[];
+  /**
+   * Declarations the package itself says are printed elsewhere on it — on the
+   * carton, on the crimp. Not found here, and not absent either; the engine is
+   * told the difference so it sends these to an inspector rather than
+   * recording them as missing.
+   */
+  declaredElsewhere: string[];
+  /**
+   * What the package holds, classified from the commodity nouns printed on it.
+   *
+   * Reported, never applied here. The category decides which rules reach the
+   * package at all, so an inspector's own statement outranks a vocabulary
+   * match — `ComplianceInputAdapter` adopts this only where the caller left
+   * the category unset. Absent when the nouns on the label disagree, or carry
+   * no category between them.
+   */
+  category?: { value: ProductCategory; confidence: number };
   processingTimeMs: number;
   /** Total lines the OCR stage produced across every image. */
   lineCount: number;
@@ -162,9 +189,99 @@ function confidenceOf(lines: Line[]): number | undefined {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+/**
+ * How large this line is printed, as a multiple of the median on its own
+ * photograph.
+ *
+ * The measurement is the box's *short* side, which is the text's height
+ * whichever way the package was photographed. Normalised per image because the
+ * number has to mean "prominent on the pack" and not "photographed closer" —
+ * two photographs of the same tube from different distances must rank their
+ * own lines the same way.
+ *
+ * This is the signal that names a product. A brand is the biggest thing
+ * printed on the front of a package; that is what a brand *is*, and it is
+ * visible in the geometry the recogniser already returns. The heuristic it
+ * replaces — the first line the OCR happened to emit — carried no information
+ * about the label at all.
+ */
+function prominenceIndex(lines: Line[]): Map<Line, number> {
+  const heightOf = (line: Line): number | undefined => {
+    const box = boxOf(line);
+    if (!box) return undefined;
+
+    const [x1, y1, x2, y2] = box;
+    return Math.min(x2 - x1, y2 - y1);
+  };
+
+  const byImage = new Map<string, number[]>();
+  for (const line of lines) {
+    const height = heightOf(line);
+    if (height === undefined || height <= 0) continue;
+
+    const key = line.region?.imageId ?? '';
+    byImage.set(key, [...(byImage.get(key) ?? []), height]);
+  }
+
+  const medians = new Map<string, number>();
+  for (const [key, heights] of byImage) {
+    const sorted = [...heights].sort((a, b) => a - b);
+    medians.set(key, sorted[Math.floor(sorted.length / 2)] ?? 1);
+  }
+
+  const index = new Map<Line, number>();
+  for (const line of lines) {
+    const height = heightOf(line);
+    const median = medians.get(line.region?.imageId ?? '');
+    if (height !== undefined && median) index.set(line, height / median);
+  }
+
+  return index;
+}
+
 /** True when a line opens a different declaration, ending a continuation. */
 function startsNewDeclaration(text: string): boolean {
   return ALL_LABELS.some((label) => label.test(text));
+}
+
+/**
+ * Below this, a reading is not sure enough to name a product from.
+ *
+ * The same floor the OCR sidecar uses to decide a page is worth re-reading.
+ * Every other field here is anchored by a printed label; a name is anchored by
+ * nothing, so the reading itself has to carry it.
+ */
+/**
+ * How much larger than its panel's body text a line must be to be a brand.
+ *
+ * A ratio against the median line height of the *same photograph*, so it means
+ * "set large on the pack" rather than "photographed closer". 1.25 sits below
+ * every real brand mark seen so far and above the taglines and variant names
+ * that compete with them, and — the point of it — above everything on a panel
+ * that carries no brand at all, which then correctly yields none.
+ */
+const BRAND_MIN_PROMINENCE = 1.25;
+
+const NAME_MIN_CONFIDENCE = 0.8;
+
+/**
+ * Text that cannot be a product name, whatever it is doing at the top of the
+ * page: contact details, an address, a registration or batch code, and the
+ * boilerplate around them.
+ */
+const NOT_A_NAME =
+  /(?:@|https?:|www\.|\b\d{5,}\b|\+?\d[\d\s-]{8,}|\b(?:pvt|ltd|limited|inc|gmbh|co)\b\.?|\bfloor\b|\bindustrial\b|\bestate\b|\bmarket\b|\broad\b|\bstreet\b|\bcontact\b|\bfeedback\b|\bquer(?:y|ies)\b|\bcomplaints?\b|\baddress\b|\bexecutive\b|\bmanager\b|\breg\.?\s*tm\b|\bregd?\b)/i;
+
+/** Whether a line could be the name of the thing in the package. */
+function couldBeAName(line: Line): boolean {
+  if (NOT_A_NAME.test(line.text)) return false;
+
+  const confidence = line.region?.confidence;
+  if (typeof confidence === 'number' && confidence < NAME_MIN_CONFIDENCE) return false;
+
+  // Mostly letters. A line that is half punctuation is a misread, not a name.
+  const letters = (line.text.match(/[A-Za-zऄ-ह]/g) ?? []).length;
+  return letters >= 3 && letters / line.text.length >= 0.6;
 }
 
 /* ── Geometry: finding a value that sits beside its label ─────────────────── */
@@ -191,12 +308,59 @@ function startsNewDeclaration(text: string): boolean {
  * cannot be a better sort.
  *
  * This is only possible because the OCR provider returns a box per line.
+ *
+ * ── AND BECAUSE THE BOXES ARE READ IN THE TEXT'S FRAME, NOT THE CAMERA'S ───
+ *
+ * "To the right of" is a fact about the printed label, and the box is in
+ * *image* coordinates. Those two agree only while the photograph is upright.
+ *
+ * They very often are not. A cylindrical package — a deodorant bottle, a
+ * shampoo tube — is photographed sideways because that is how it fits in the
+ * frame, and its declaration block then runs top-to-bottom down the image. The
+ * recogniser copes: it classifies each line's own orientation and returns the
+ * text the right way round. The boxes stay where they were. So every
+ * comparison below was made ninety degrees out — `Batch No.:` "found its
+ * value to the right" and got `Moo 17, Soi Industr`, a fragment of the
+ * factory address on the next printed line.
+ *
+ * So each line is measured along its *own* reading direction, and only lines
+ * running the same way are compared. On an upright photograph this is the
+ * identity and nothing changes.
  */
 
 type Box = [number, number, number, number];
 
 function boxOf(line: Line): Box | undefined {
   return line.region?.boundingBox;
+}
+
+/**
+ * Which way this line of text runs.
+ *
+ * From the box alone: a line is long along the direction it reads. Too short a
+ * line carries no such evidence — `50ml` is nearly square — so anything under
+ * four characters is left at the page's usual direction rather than guessed at.
+ */
+function orientationOf(line: Line): 'horizontal' | 'vertical' {
+  const box = boxOf(line);
+  if (!box || line.text.trim().length < 4) return 'horizontal';
+
+  const [x1, y1, x2, y2] = box;
+  return y2 - y1 > x2 - x1 ? 'vertical' : 'horizontal';
+}
+
+/**
+ * The box in the text's own frame: `along` the reading direction, `across` the
+ * stacking of successive printed lines.
+ *
+ * For sideways text the reading direction is the image's +y, and successive
+ * printed lines march towards *smaller* x — so the cross axis is negated to
+ * keep "the next line down" pointing the same way it does for upright text.
+ * Everything below can then be written once.
+ */
+function readingBox(box: Box, orientation: 'horizontal' | 'vertical'): Box {
+  const [x1, y1, x2, y2] = box;
+  return orientation === 'vertical' ? [y1, -x2, y2, -x1] : [x1, y1, x2, y2];
 }
 
 /** Fraction of the shorter span where two intervals overlap. 0 when disjoint. */
@@ -232,7 +396,8 @@ function neighboursOf(label: Line, lines: Line[]): Line[] {
   const anchor = boxOf(label);
   if (!anchor) return [];
 
-  const [ax1, ay1, ax2, ay2] = anchor;
+  const orientation = orientationOf(label);
+  const [ax1, ay1, ax2, ay2] = readingBox(anchor, orientation);
   const height = ay2 - ay1;
   if (height <= 0) return [];
 
@@ -244,11 +409,15 @@ function neighboursOf(label: Line, lines: Line[]): Line[] {
     // Never pull a value out of another image — a box from photograph two says
     // nothing about where this declaration sits on photograph one.
     if (candidate.region?.imageId !== label.region?.imageId) continue;
+    // Nor out of text running the other way. On a package photographed
+    // sideways the panel that wrapped around the curve is read at ninety
+    // degrees to the panel facing the camera, and the two share no geometry.
+    if (orientationOf(candidate) !== orientation) continue;
 
     const box = boxOf(candidate);
     if (!box) continue;
 
-    const [bx1, by1, bx2, by2] = box;
+    const [bx1, by1, bx2, by2] = readingBox(box, orientation);
 
     if (overlapRatio(ay1, ay2, by1, by2) >= SAME_ROW && bx1 >= ax1) {
       const gap = bx1 - ax2;
@@ -256,7 +425,7 @@ function neighboursOf(label: Line, lines: Line[]): Line[] {
       continue;
     }
 
-    if (overlapRatio(ax1, ax2, bx1, bx2) >= SAME_COLUMN && by1 >= ay2) {
+    if (overlapRatio(ax1, ax2, bx1, bx2) >= SAME_COLUMN && by1 >= ay2 - height / 2) {
       const gap = by1 - ay2;
       if (gap <= MAX_GAP_BELOW * height) below.push({ line: candidate, gap });
     }
@@ -268,6 +437,46 @@ function neighboursOf(label: Line, lines: Line[]): Line[] {
     ...right.sort(nearestFirst).map((entry) => entry.line),
     ...below.sort(nearestFirst).map((entry) => entry.line),
   ];
+}
+
+/**
+ * The next printed line under this one, or nothing.
+ *
+ * Used to walk an address, which is the one declaration that genuinely runs
+ * over several lines. It follows the printed layout rather than the OCR's
+ * reading order for the same reason `neighboursOf` does: on a package
+ * photographed sideways the recogniser emitted this block bottom-up, so
+ * "the next line" by index was the line *above* — and `Imported & Marketed
+ * by:` continued into `49,4.98/ml`, the unit price from the column beside it.
+ */
+function lineBelow(line: Line, lines: Line[]): Line | undefined {
+  const anchor = boxOf(line);
+  if (!anchor) return undefined;
+
+  const orientation = orientationOf(line);
+  const [ax1, ay1, ax2, ay2] = readingBox(anchor, orientation);
+  const height = ay2 - ay1;
+  if (height <= 0) return undefined;
+
+  let best: { line: Line; gap: number } | undefined;
+
+  for (const candidate of lines) {
+    if (candidate === line) continue;
+    if (candidate.region?.imageId !== line.region?.imageId) continue;
+    if (orientationOf(candidate) !== orientation) continue;
+
+    const box = boxOf(candidate);
+    if (!box) continue;
+
+    const [bx1, by1, bx2] = readingBox(box, orientation);
+    if (overlapRatio(ax1, ax2, bx1, bx2) < SAME_COLUMN) continue;
+
+    const gap = by1 - ay2;
+    if (gap < -height / 2 || gap > MAX_GAP_BELOW * height) continue;
+    if (!best || gap < best.gap) best = { line: candidate, gap };
+  }
+
+  return best?.line;
 }
 
 /** An address is complete once a PIN code has been seen. */
@@ -292,6 +501,52 @@ export class InformationExtractionService {
     const informational: Record<string, ExtractedFieldRecord> = {};
     const warnings: string[] = [];
 
+    /**
+     * `For MRP, refer to the carton` — read before anything else, because a
+     * pointer must be claimed before the matchers reach it. Left unclaimed,
+     * `batch no.` inside that sentence matched the batch-number label and the
+     * words after it were recorded as the batch number.
+     */
+    const declaredElsewhere = new Set<string>();
+
+    for (const [index, line] of lines.entries()) {
+      if (!isPointerLine(line.text)) continue;
+      line.claimedBy = 'declared_elsewhere';
+
+      /**
+       * The sentence usually wraps, and the half naming the declarations is
+       * the half that gets left behind:
+       *
+       *     For the manufacturing date, batch no. & Use before date-
+       *     refer to the crimp
+       *
+       * Only the second line carries the pointer, and only the first names
+       * what it points at, so neither line means anything alone. The line
+       * before is folded in, and claimed only when it actually contributed —
+       * an unrelated neighbour must not be swallowed.
+       */
+      const previous = lines[index - 1];
+      const ownTargets = declaredElsewhereIn(line.text);
+      const joinedTargets = previous
+        ? declaredElsewhereIn(`${previous.text} ${line.text}`)
+        : ownTargets;
+
+      for (const field of joinedTargets) declaredElsewhere.add(field);
+
+      if (previous && !previous.claimedBy && joinedTargets.length > ownTargets.length) {
+        previous.claimedBy = 'declared_elsewhere';
+      }
+    }
+
+    if (declaredElsewhere.size > 0) {
+      warnings.push(
+        `The package states that ${[...declaredElsewhere]
+          .map((field) => FIELD_SPECS.find((spec) => spec.field === field)?.label ?? field)
+          .join(', ')} ${declaredElsewhere.size === 1 ? 'is' : 'are'} printed elsewhere on it — ` +
+          'on the carton or the crimp. Check there before treating any of them as missing.',
+      );
+    }
+
     for (const spec of FIELD_SPECS) {
       const found = this.findField(spec, lines, spaceByImage);
       const bucket = spec.engineField ? fields : informational;
@@ -308,7 +563,13 @@ export class InformationExtractionService {
 
     // Heuristics run last, over whatever is left, so they cannot take a line a
     // pattern would have claimed with certainty.
-    this.applyNameHeuristics(lines, spaceByImage, fields, informational, warnings);
+    const category = this.applyNameHeuristics(
+      lines,
+      spaceByImage,
+      fields,
+      informational,
+      warnings,
+    );
 
     const contextSignals = this.contextSignalsFrom(fields, informational);
 
@@ -320,6 +581,8 @@ export class InformationExtractionService {
       contextSignals,
       unclaimedLines: lines.filter((line) => !line.claimedBy).map((line) => line.raw),
       warnings,
+      declaredElsewhere: [...declaredElsewhere],
+      ...(category ? { category } : {}),
       processingTimeMs: Date.now() - startedAt,
       lineCount: lines.length,
     };
@@ -357,6 +620,18 @@ export class InformationExtractionService {
         // "Imported by ..." is both the rule 6(1)(a) declaration and the
         // importer. Engine fields never share.
         if (line.claimedBy && spec.engineField) continue;
+        /**
+         * A sentence saying where a declaration is printed is not that
+         * declaration, for *any* field.
+         *
+         * The `claimedBy` test above lets informational fields re-read a
+         * claimed line on purpose — `Imported by …` is both the rule 6(1)(a)
+         * declaration and the importer — so a pointer has to be excluded in
+         * its own right, or the batch number comes back as the words
+         * `& Use before date-` from the sentence that says where the real one
+         * is stamped.
+         */
+        if (line.claimedBy === 'declared_elsewhere' || isPointerLine(line.text)) continue;
         if (spec.exclude?.test(line.text)) continue;
 
         let after: string | null = null;
@@ -388,6 +663,21 @@ export class InformationExtractionService {
             if (neighbour.claimedBy && spec.engineField) continue;
             if (spec.exclude?.test(neighbour.text)) continue;
 
+            /**
+             * A line that is itself a declaration's label is nobody's value.
+             *
+             * A two-column block stacks its keys — `Batch No.:`, `MFD.(P) &`,
+             * `Use Before (E):` — one under the next, so the nearest thing
+             * below any key is the following key. Taking it produced a batch
+             * number of "MFD.(P) &".
+             */
+            if (startsNewDeclaration(neighbour.text)) continue;
+
+            // And what is taken has to look like the declaration being read.
+            // Beside a label, position is the only evidence there is, and
+            // position alone is satisfied by the address underneath.
+            if (spec.neighbour && !spec.neighbour.test(neighbour.text)) continue;
+
             const candidate = spec.extract(neighbour.text, neighbour.text);
             if (candidate) {
               value = candidate;
@@ -411,7 +701,24 @@ export class InformationExtractionService {
           used.push(...this.continuationOf(valueLine ?? line, lines, spec));
         }
 
-        const text = used.length > 1 ? used.map((entry) => entry.text).join(', ') : value.value;
+        /**
+         * The value is everything that was read for it, joined.
+         *
+         * `used` opens with the label line, and that line belongs in the value
+         * only when the value was read *from* it — `Manufactured By, L.B.C.,
+         * Unit II, Haridwar…` is the declaration as printed, and the wording
+         * is part of what several rules inspect. Where the value came from a
+         * neighbouring line instead, the label is evidence and not value.
+         *
+         * The old form asked whether `value.value` equalled the label line,
+         * which is only ever true in the first case — so an ingredient list
+         * found *beside* its heading kept its first line and silently dropped
+         * the five that continued it. They were in the evidence the whole
+         * time; nothing put them in the answer.
+         */
+        const valueLines = valueLine ? used.slice(1) : used;
+        const text =
+          valueLines.length > 1 ? valueLines.map((entry) => entry.text).join(', ') : value.value;
         const base = confidenceOf(used);
 
         if (spec.engineField) {
@@ -423,7 +730,7 @@ export class InformationExtractionService {
           label: spec.label,
           // A continuation rewrites the value to the joined text, because half
           // an address is a worse answer than the whole one.
-          value: used.length > 1 && value.value === line.text.trim() ? text : value.value,
+          value: valueLines.length > 1 ? text : value.value,
           confidence:
             base === undefined ? undefined : value.repaired ? base * REPAIR_CONFIDENCE_PENALTY : base,
           status: 'FOUND',
@@ -450,8 +757,21 @@ export class InformationExtractionService {
     const taken: Line[] = [];
     if (HAS_PIN.test(start.text)) return taken;
 
-    for (let index = start.index + 1; index < lines.length && taken.length < 3; index += 1) {
-      const line = lines[index];
+    // Three lines is an address. An ingredient list is seven, and truncating
+    // one is not a shorter answer — it is a different one, missing whichever
+    // ingredient the rule happens to be about.
+    const limit = typeof spec.continuation === 'number' ? spec.continuation : 3;
+
+    // Geometry where there is any, and the OCR's reading order only as the
+    // fallback for a provider that returns no boxes at all.
+    const located = boxOf(start) !== undefined;
+    let current = start;
+
+    while (taken.length < limit) {
+      const line = located
+        ? lineBelow(current, lines)
+        : lines[current.index + 1];
+
       if (!line) break;
       if (line.claimedBy) break;
       if (startsNewDeclaration(line.text)) break;
@@ -459,6 +779,7 @@ export class InformationExtractionService {
       if (line.text.length < 3) break;
 
       taken.push(line);
+      current = line;
       if (HAS_PIN.test(line.text)) break;
     }
 
@@ -469,12 +790,37 @@ export class InformationExtractionService {
   /**
    * Brand and commodity name.
    *
-   * Neither is printed with a label, so neither can be extracted the way the
-   * rest of the table is. The heuristic — brand is the first line, the generic
-   * name is the wordiest unclaimed line just below it — is a reading of how
-   * labels are laid out and not a reading of the law, and it is recorded as
-   * `HEURISTIC` and warned about so that an inspector treats it as a starting
-   * point rather than as a determination.
+   * Neither is printed with a label — a package says `MOISTURIZER`, never
+   * `Common name: moisturizer` — so neither can be found the way the rest of
+   * the table is. Two different signals do it instead, and both are readings
+   * of how labels are laid out rather than readings of the law, which is why
+   * every value here is recorded as `HEURISTIC` and warned about.
+   *
+   * ── THE COMMODITY NAME IS A NOUN ────────────────────────────────────────
+   *
+   * Rule 6(1)(b) wants what the thing *is*. That is a word from a vocabulary —
+   * see `commodity.ts` — and looking it up finds `MOISTURIZER` where the
+   * previous rule, "the wordiest of the first five lines", found
+   * `+ hyaluronic acid + betaine`. The same noun classifies the package, so
+   * the category comes from the same evidence and points at the same word.
+   *
+   * ── THE BRAND IS THE BIGGEST THING ON THE PACKAGE ───────────────────────
+   *
+   * Which is what a brand is, and it is in the geometry already: `Minimalist`
+   * is printed at 1.8x the median line height of the panel it is on, and
+   * `Vitamin B5` — the variant, which the old heuristic returned — at 1.25x.
+   * Where a commodity noun was found, the brand is preferred from the *same*
+   * photograph, because the two are printed together on the front and the back
+   * of a package carries neither.
+   *
+   * ── AND NEITHER IS INVENTED ─────────────────────────────────────────────
+   *
+   * A line has to be one the recogniser actually read and capable of being a
+   * name at all. Without those guards a photograph of the back of a package —
+   * which carries no product name anywhere on it — still produced one: on the
+   * scan that prompted this, `anacur: Beirhi Co.`, read at 0.54 out of the
+   * blur where the label curved away. Finding no name on a panel that does not
+   * carry one is the correct answer.
    */
   private applyNameHeuristics(
     lines: Line[],
@@ -482,67 +828,110 @@ export class InformationExtractionService {
     fields: Record<string, ExtractedFieldRecord>,
     informational: Record<string, ExtractedFieldRecord>,
     warnings: string[],
-  ): void {
-    const head = lines.slice(0, 5);
-    const brandLine = head.find((line) => !line.claimedBy && line.text.length >= 2);
+  ): { value: ProductCategory; confidence: number } | undefined {
+    const prominence = prominenceIndex(lines);
+    const sizeOf = (line: Line): number => prominence.get(line) ?? 0;
+
+    const record = (
+      field: string,
+      label: string,
+      line: Line,
+      value: string,
+    ): ExtractedFieldRecord => ({
+      field,
+      label,
+      value,
+      confidence: confidenceOf([line]),
+      status: 'FOUND',
+      evidence: [evidenceFor(line, spaceByImage.get(line.region?.imageId ?? ''))],
+      method: 'HEURISTIC',
+      matchedText: line.raw,
+    });
+
+    /* ── The brand, by prominence ────────────────────────────────────────── */
+
+    /**
+     * The largest name-capable text anywhere on the package.
+     *
+     * Found first, and it is what settles which photograph is the front. A
+     * back panel has its own largest line — `HideNothing.`, a tagline above
+     * the ingredient list — and ranking each panel's lines against that
+     * panel's own median makes the two comparable: `Minimalist` at 1.83x the
+     * front's median beats it, and does so without this code being told which
+     * photograph the inspector meant as the front.
+     */
+    const brandLine = lines
+      .filter((line) => !line.claimedBy && couldBeAName(line))
+      // Prominent, not merely the largest of a bad lot. Without the threshold
+      // this returns the biggest line of *whatever it was given* — so a reading
+      // that is all noise and taglines still yields a brand, and the scan that
+      // prompted this note produced `HideNothing.`, a back-panel slogan, as the
+      // name of the product. A brand is set well above its panel's body text
+      // (`Minimalist` at 1.83x); a slogan among equals is not.
+      .filter((line) => sizeOf(line) >= BRAND_MIN_PROMINENCE)
+      .sort((a, b) => sizeOf(b) - sizeOf(a))[0];
 
     if (brandLine) {
-      informational.brand = {
-        field: 'brand',
-        label: 'Brand',
-        value: brandLine.text,
-        confidence: confidenceOf([brandLine]),
-        status: 'FOUND',
-        evidence: [evidenceFor(brandLine, spaceByImage.get(brandLine.region?.imageId ?? ''))],
-        method: 'HEURISTIC',
-        matchedText: brandLine.raw,
-      };
+      brandLine.claimedBy = 'brand';
+      informational.brand = record('brand', 'Brand', brandLine, brandLine.text);
     }
+
+    /* ── The commodity, by name ──────────────────────────────────────────── */
+
+    const nouns = lines
+      .map((line) => ({ line, match: commodityNounIn(line.text) }))
+      .filter((entry): entry is { line: Line; match: CommodityMatch } => entry.match !== undefined);
+
+    // Every noun on the label votes on the category, wherever it is printed —
+    // the back panel names the commodity as often as the front does.
+    const category = categoryFrom(nouns.map((entry) => entry.match));
+
+    /**
+     * The printed name comes from the front where the front has one.
+     *
+     * `MOISTURIZER` is on both panels of this tube, and the back's copy sits
+     * higher above its panel's median than the front's does — a comparison
+     * that means nothing, because the two panels are set in different sizes
+     * for different purposes. The face carrying the brand is the front, and
+     * the front is where a package names what it holds.
+     */
+    const face = brandLine?.region?.imageId;
+    const available = nouns.filter((entry) => !entry.line.claimedBy);
+    const onFace = available.filter((entry) => entry.line.region?.imageId === face);
+
+    /**
+     * A noun that settles the category outranks one that does not, whatever
+     * their sizes: `moisturizer` says what the package is and `oil` does not,
+     * and on this tube the vaguer word is printed larger.
+     */
+    const named = (onFace.length > 0 ? onFace : available).sort((a, b) => {
+      const classified = Number(b.match.category !== undefined) - Number(a.match.category !== undefined);
+      return classified !== 0 ? classified : sizeOf(b.line) - sizeOf(a.line);
+    })[0];
 
     const existing = fields.commodity_name;
-    if (!existing || existing.status === 'NOT_FOUND') {
-      const candidates = head.filter(
-        (line) =>
-          !line.claimedBy &&
-          line !== brandLine &&
-          line.text.length >= 3 &&
-          // Contains a letter, Latin or Devanagari. The Devanagari range
-          // starts at U+0904 rather than U+0900 because U+0900-U+0903 are
-          // combining signs, not letters — and a combining mark inside a
-          // character class is read one way by a regex engine and another by
-          // anyone maintaining it.
-          /[A-Za-z\u0904-\u0939]/.test(line.text),
+
+    if (named && (!existing || existing.status === 'NOT_FOUND')) {
+      named.line.claimedBy = 'commodity_name';
+      fields.commodity_name = record(
+        'commodity_name',
+        'Common or generic name',
+        named.line,
+        named.match.printed,
       );
 
-      // Most words wins; a later line wins a tie, because the generic name sits
-      // below the brand line and any sub-brand.
-      const best = candidates.reduce<Line | undefined>((chosen, line) => {
-        if (!chosen) return line;
-        const words = (text: string): number => text.split(/\s+/).length;
-        return words(line.text) >= words(chosen.text) ? line : chosen;
-      }, undefined);
-
-      if (best) {
-        best.claimedBy = 'commodity_name';
-        fields.commodity_name = {
-          field: 'commodity_name',
-          label: 'Common or generic name',
-          value: best.text,
-          confidence: confidenceOf([best]),
-          status: 'FOUND',
-          evidence: [evidenceFor(best, spaceByImage.get(best.region?.imageId ?? ''))],
-          method: 'HEURISTIC',
-          matchedText: best.raw,
-        };
-        warnings.push(
-          `The common or generic name was identified by layout rather than by a printed label ("${best.text}"). Confirm it against the package.`,
-        );
-      }
+      warnings.push(
+        `The common or generic name was identified from the word "${named.match.printed}" printed ` +
+          'on the package rather than from a labelled declaration. Confirm it against the package.',
+      );
     }
 
-    const brand = informational.brand?.value;
-    const commodity = fields.commodity_name?.value;
-    const productName = [brand, commodity].filter(Boolean).join(' ').trim();
+    /* ── The two together ────────────────────────────────────────────────── */
+
+    const productName = [informational.brand?.value, fields.commodity_name?.value]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
 
     if (productName !== '') {
       informational.product_name = {
@@ -557,6 +946,8 @@ export class InformationExtractionService {
         method: 'DERIVED',
       };
     }
+
+    return category;
   }
 
   /**
