@@ -9,7 +9,7 @@ import { evaluateCompliance, needsReview } from '../services/complianceService';
 import type { ExtractionResult } from '../services/extraction';
 import type { AggregateOCRResult } from '../services/ocr';
 import { reevaluateWithVerifiedFields, toLegacyStatus } from '../services/scan';
-import type { ProductCategory, StatsDTO } from '../types/domain';
+import { statusFilterField, type ProductCategory, type StatsDTO } from '../types/domain';
 import { ApiError } from '../utils/ApiError';
 import { nextInspectionReference } from '../utils/referenceId';
 import { created, ok, paginated } from '../utils/respond';
@@ -111,7 +111,12 @@ export async function listInspections(req: Request, res: Response): Promise<Resp
     filter.inspector = user.id;
   }
 
-  if (params.status && params.status !== 'ALL') filter.status = params.status;
+  // A verdict filter reads the verdict, not the workflow column that gets
+  // overwritten on finalize. See `statusFilterField` for what this was doing
+  // before, and why a filed violation used to vanish from the register.
+  if (params.status && params.status !== 'ALL') {
+    filter[statusFilterField(params.status)] = params.status;
+  }
   if (params.productCategory) filter.productCategory = params.productCategory;
 
   // Jurisdiction. These were accepted by the query string and then dropped by
@@ -317,6 +322,8 @@ async function reevaluateFromScan(
     contextSignals: stored.extraction.contextSignals as unknown as ExtractionResult['contextSignals'],
     unclaimedLines: stored.extraction.unclaimedLines,
     warnings: stored.extraction.warnings,
+    // Absent on records written before pointer sentences were understood.
+    declaredElsewhere: stored.extraction.declaredElsewhere ?? [],
     processingTimeMs: stored.extraction.processingMs,
     lineCount: stored.ocr.lineCount,
   } satisfies ExtractionResult;
@@ -340,6 +347,10 @@ async function reevaluateFromScan(
     })),
     processingTimeMs: stored.ocr.processingMs,
     confidenceAvailable: stored.ocr.confidenceAvailable,
+    // Carried through the re-evaluation: a face that was never read is still
+    // unread when the inspector corrects a field, and the completeness the
+    // engine is given must keep saying so.
+    unread: stored.ocr.unread ?? [],
   };
 
   const outcome = await reevaluateWithVerifiedFields({

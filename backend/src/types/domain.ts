@@ -47,6 +47,49 @@ export const COMPLIANCE_STATUSES = ['COMPLIANT', 'VIOLATION_DETECTED', 'REVIEW_R
 export type ComplianceStatus = (typeof COMPLIANCE_STATUSES)[number];
 
 /**
+ * ── WHICH FIELD A `?status=` FILTER MEANS ───────────────────────────────────
+ *
+ * `INSPECTION_STATUSES` overlaps `COMPLIANCE_STATUSES` on three values, and
+ * `inspection.status` is overwritten with `FINALIZED` when a record is filed.
+ * So a filter written as `{ status: 'VIOLATION_DETECTED' }` matched only the
+ * inspections that had *not* been finalized yet — every filed violation
+ * disappeared from it, permanently, which is the opposite of what a register is
+ * for. The verdict was never lost; it lives on in `complianceResult.status`.
+ * The filter was simply reading the wrong field.
+ *
+ * The bug had teeth because it was silent and it grew. Home shows a
+ * "Violations" tile counted from `complianceResult.status`, and tapping it
+ * opens the list filtered by this parameter — so an officer tapping "12" was
+ * shown however many of those twelve happened to be unfiled, with nothing to
+ * say where the rest had gone. Since filing is the normal end of an inspection,
+ * the gap widened with every record closed.
+ *
+ * This resolves each of the three shared values to the field its label
+ * actually means:
+ *
+ *   COMPLIANT, VIOLATION_DETECTED → the verdict.
+ *       "Show me the violations" means all of them. Whether the paperwork is
+ *       closed does not change what was found.
+ *
+ *   REVIEW_REQUIRED → the workflow position.
+ *       "Review required" is a queue, not a finding: it is the work still
+ *       sitting on the officer's desk. A finalized record has been reviewed —
+ *       the inspector filed it — so it does not belong in that queue, and the
+ *       "Pending Reviews" tile counts it the same way.
+ *
+ * DRAFT, PROCESSING and FINALIZED are workflow-only and were never ambiguous.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+const VERDICT_FILTER_FIELDS = {
+  COMPLIANT: 'complianceResult.status',
+  VIOLATION_DETECTED: 'complianceResult.status',
+} as const;
+
+export function statusFilterField(status: InspectionStatus): 'status' | 'complianceResult.status' {
+  return VERDICT_FILTER_FIELDS[status as keyof typeof VERDICT_FILTER_FIELDS] ?? 'status';
+}
+
+/**
  * The commodity classes an inspector picks from.
  *
  * Ordered by how often they are actually inspected under the Packaged

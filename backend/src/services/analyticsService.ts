@@ -1,7 +1,13 @@
 import mongoose, { type PipelineStage } from 'mongoose';
 
 import { Inspection, User } from '../models';
-import type { ProductCategory, Severity, ViolationCategory } from '../types/domain';
+import {
+  statusFilterField,
+  type InspectionStatus,
+  type ProductCategory,
+  type Severity,
+  type ViolationCategory,
+} from '../types/domain';
 
 /**
  * Dashboard aggregations.
@@ -39,7 +45,12 @@ export function scopeMatch(scope: AnalyticsScope): PipelineStage.Match['$match']
   if (scope.productCategory) match.productCategory = scope.productCategory;
   if (scope.district) match['location.district'] = scope.district;
   if (scope.state) match['location.state'] = scope.state;
-  if (scope.status && scope.status !== 'ALL') match.status = scope.status;
+  // Same rule as the inspection list, and applied through the same helper so
+  // the two cannot drift: a dashboard narrowed to "violations" must cover the
+  // filed ones, or every chart on the page quietly excludes closed enforcement.
+  if (scope.status && scope.status !== 'ALL') {
+    match[statusFilterField(scope.status as InspectionStatus)] = scope.status;
+  }
 
   if (scope.from || scope.to) {
     const range: Record<string, Date> = {};
