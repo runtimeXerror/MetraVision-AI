@@ -275,11 +275,26 @@ export interface ScanRecord {
   ocr: {
     provider: string;
     providerVersion?: string;
+    /**
+     * Every line the recogniser read, newline-separated, in reading order.
+     *
+     * Kept so an officer can answer the question the declaration list cannot:
+     * when a mandatory declaration is missing, was it not printed on the
+     * package, or was it printed and not read? Those are a finding and a defect
+     * respectively, and nothing else on the record tells them apart.
+     */
+    rawText?: string;
     lineCount: number;
     confidenceAvailable: boolean;
     processingMs: number;
   };
-  extraction: { engine: string; engineVersion: string; warnings: string[] };
+  extraction: {
+    engine: string;
+    engineVersion: string;
+    /** Lines no declaration claimed. Absent on records written before it was kept. */
+    unclaimedLines?: string[];
+    warnings: string[];
+  };
   status: LegalStatus;
   summary: LegalSummary;
   issues: ComplianceIssue[];

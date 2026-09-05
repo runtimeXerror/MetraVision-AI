@@ -361,11 +361,25 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
     </div>`);
   }
 
-  sections.push(`<div class="note">
-    Findings were produced by an automated analysis of the label photographs and reviewed by the
-    inspecting officer. Values the officer confirmed, corrected or amended are marked as such in the
-    declarations table.
-  </div>`);
+  /*
+   * The standing note that used to close every report is gone.
+   *
+   * "Findings were produced by an automated analysis of the label photographs
+   * and reviewed by the inspecting officer. Values the officer confirmed,
+   * corrected or amended are marked as such in the declarations table."
+   *
+   * Both halves were already on the page and better placed. The Source column
+   * of the Declarations table says, per declaration, whether it was read
+   * automatically or confirmed by the officer — which is the same claim made
+   * specifically rather than in general, and made where the reader is looking
+   * at the value it qualifies. And the signature block above carries the
+   * officer's name and the filing time, which is the actual attestation.
+   *
+   * A paragraph restating both, under the signature, on every report, is the
+   * kind of boilerplate a reader learns to skip — and once they are skipping
+   * the last block on the page they are skipping the amendment note beside it,
+   * which is not boilerplate at all.
+   */
 
   return sections.join('\n');
 }

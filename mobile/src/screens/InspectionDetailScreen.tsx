@@ -8,6 +8,7 @@ import {
   ComplianceTally,
   ExtractedFieldCard,
   ImageThumb,
+  LabelTextView,
   VerdictPanel,
   ViolationCard,
 } from '../components/domain';
@@ -22,7 +23,7 @@ import { loadInspection } from '../services/offlineReads';
 import type { RootScreenProps } from '../navigation/types';
 import { formatConfidence, formatDateTime, formatDuration } from '../utils/format';
 
-type Tab = 'summary' | 'fields' | 'issues' | 'checks';
+type Tab = 'summary' | 'fields' | 'issues' | 'checks' | 'text';
 
 /** Read-only view of a completed inspection, opened from History or Home. */
 export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'InspectionDetail'>) {
@@ -80,6 +81,11 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
     { value: 'issues', label: 'Issues', count: analysis?.compliance.violations.length },
     { value: 'checks', label: 'Rule Checks', count: analysis?.compliance.checks.length },
   ];
+
+  // Only where the record carries a reading to show. See `LabelTextView`.
+  if (inspection.scan?.ocr.rawText) {
+    tabs.push({ value: 'text', label: 'Label Text', count: inspection.scan.ocr.lineCount });
+  }
 
   return (
     <Screen>
@@ -264,6 +270,10 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
                 />
               </Card>
             )
+          ) : tab === 'text' ? (
+            inspection.scan ? (
+              <LabelTextView scan={inspection.scan} />
+            ) : null
           ) : analysis ? (
             <Card>
               {analysis.compliance.checks.map((check, index) => (

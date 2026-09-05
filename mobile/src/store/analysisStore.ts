@@ -4,13 +4,13 @@ import { REVIEW_CONFIDENCE_THRESHOLD } from '../constants/rules';
 import { scanProduct, type AnalysisStageKey } from '../services/aiService';
 import { toApiError } from '../services/api';
 import { reviewField as submitReview, uploadImage } from '../services/inspectionService';
-import type {
-  AIAnalysis,
+import {
   ApiError,
-  ExtractedField,
-  ProductImage,
-  ReviewAction,
-  ScanRecord,
+  type AIAnalysis,
+  type ExtractedField,
+  type ProductImage,
+  type ReviewAction,
+  type ScanRecord,
 } from '../types';
 
 /**
@@ -46,7 +46,16 @@ interface AnalysisState {
   /** True while a review decision is being submitted. */
   submitting: boolean;
 
-  run: (inspectionId: string, images: ProductImage[]) => Promise<boolean>;
+  /**
+   * Runs the scan.
+   *
+   * Accepts a missing id rather than requiring the caller to check for one,
+   * because the caller that did check simply returned — leaving the analysis
+   * screen on its spinner with no error, no result and, since that screen
+   * offers a way back only once something has failed, no way off it either.
+   * A run that cannot start is a failed run and has to say so.
+   */
+  run: (inspectionId: string | null, images: ProductImage[]) => Promise<boolean>;
   /** Records the inspector's decision on one field. */
   reviewField: (
     inspectionId: string,
@@ -74,6 +83,21 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
 
   async run(inspectionId, images) {
     set({ status: 'running', completedStages: [], error: null, analysis: null, scan: null });
+
+    if (!inspectionId) {
+      // The draft reached this screen without a server record — the create in
+      // step 1 never landed, or the store was reset under it. Nothing can be
+      // scanned, and saying so is what lets the inspector back out and retry.
+      set({
+        status: 'error',
+        error: new ApiError(
+          'validation',
+          'This inspection has not been saved to the server yet, so it cannot be analysed. Go back and continue from the images again.',
+          { retryable: false },
+        ),
+      });
+      return false;
+    }
 
     try {
       const { analysis, scan } = await scanProduct(inspectionId, images, {

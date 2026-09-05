@@ -122,11 +122,19 @@ export interface InspectionDTO {
     ocr: {
       provider: string;
       providerVersion?: string;
+      /** Every line the recogniser read, newline-separated, in reading order. */
+      rawText?: string;
       lineCount: number;
       confidenceAvailable: boolean;
       processingMs: number;
     };
-    extraction: { engine: string; engineVersion: string; warnings: string[] };
+    extraction: {
+      engine: string;
+      engineVersion: string;
+      /** Lines no declaration claimed. Absent on records written before it was kept. */
+      unclaimedLines?: string[];
+      warnings: string[];
+    };
     legal: {
       status: string;
       summary: Record<string, number>;

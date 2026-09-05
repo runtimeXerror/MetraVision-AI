@@ -28,6 +28,7 @@ import type {
   InspectionSummary,
   ProductImage,
   QualityRating,
+  ScanRecord,
   Severity,
   Tone,
   Violation,
@@ -43,7 +44,7 @@ import {
 
 import { ImageViewer } from './ImageViewer';
 import { RemoteImage } from './offline';
-import { Badge, Card, Row, Skeleton, Txt } from './ui';
+import { Badge, Card, EmptyState, Row, Skeleton, Txt } from './ui';
 
 /**
  * Domain-aware components — the pieces that know what an inspection is.
@@ -531,6 +532,27 @@ export function ConfidencePill({ confidence }: { confidence: number }) {
  * Shows the model's read and, when the inspector has corrected it, both values
  * — the corrected one as the value of record and the original as provenance.
  */
+/**
+ * One declaration, closed until it is asked about.
+ *
+ * ── WHY IT COLLAPSES ────────────────────────────────────────────────────
+ *
+ * A cosmetic label carries a dozen declarations and a food label more. Every
+ * card opened to its full height — value, provenance line, and two buttons —
+ * so the list an officer scrolls to answer "what did it read?" was three
+ * screens long, and the two declarations that actually matter sat somewhere in
+ * the middle of ten that were fine.
+ *
+ * What survives collapsed is what the scan is for: the declaration, the value
+ * of record, and how sure the recogniser was. "Not declared" stays in red and
+ * stays visible, because that is the finding — a list that hides its own
+ * findings until each row is opened would be worse than the long one.
+ *
+ * What folds away is what you only want once you have picked a row: who
+ * confirmed or corrected it, what the model originally read, and the two
+ * actions. Those are per-declaration work, and per-declaration work belongs
+ * behind the declaration you chose.
+ */
 export function ExtractedFieldCard({
   field,
   onViewEvidence,
@@ -542,30 +564,62 @@ export function ExtractedFieldCard({
   onReview?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
+  const [open, setOpen] = useState(false);
+
   const corrected = field.reviewAction !== undefined;
   const displayValue =
     field.reviewAction === 'marked_unavailable' ? null : (field.humanValue ?? field.aiValue);
   const missing = displayValue === null || displayValue.trim() === '';
 
+  const hasMore = corrected || Boolean(onViewEvidence && field.boundingBox) || Boolean(onReview);
+
   return (
     <Card style={[{ marginBottom: spacing.sm }, style]}>
-      <Row justify="space-between" align="flex-start">
-        <Txt variant="overline" color={colors.textFaint} style={{ flex: 1 }}>
-          {field.label}
-          {field.required ? ' · Required' : ''}
-        </Txt>
-        {field.aiValue !== null ? <ConfidencePill confidence={field.confidence} /> : null}
-      </Row>
-
-      <Txt
-        variant="heading"
-        color={missing ? colors.danger : colors.text}
-        style={{ marginTop: spacing.xs }}
+      <Pressable
+        onPress={() => setOpen((current) => !current)}
+        disabled={!hasMore}
+        accessibilityRole={hasMore ? 'button' : 'text'}
+        accessibilityLabel={`${field.label}: ${missing ? 'not declared' : displayValue}`}
+        accessibilityState={hasMore ? { expanded: open } : undefined}
+        style={({ pressed }) => (pressed && hasMore ? { opacity: 0.7 } : undefined)}
       >
-        {missing ? 'Not declared' : displayValue}
-      </Txt>
+        <Row justify="space-between" align="flex-start">
+          <Txt variant="overline" color={colors.textFaint} style={{ flex: 1 }}>
+            {field.label}
+            {field.required ? ' · Required' : ''}
+          </Txt>
+          {field.aiValue !== null ? <ConfidencePill confidence={field.confidence} /> : null}
+        </Row>
 
-      {corrected ? (
+        <Row justify="space-between" align="center" gap={spacing.sm}>
+          <Txt
+            variant="heading"
+            color={missing ? colors.danger : colors.text}
+            style={{ flex: 1, marginTop: spacing.xs }}
+          >
+            {missing ? 'Not declared' : displayValue}
+          </Txt>
+
+          {hasMore ? (
+            <Ionicons
+              name={open ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color={colors.textFaint}
+            />
+          ) : null}
+        </Row>
+
+        {/* One word, closed, where an officer has already reviewed this. It is
+            the difference between a value the machine read and one a person
+            stood behind, and it must not need a tap to discover. */}
+        {corrected && !open ? (
+          <Txt variant="caption" color={colors.info} style={{ marginTop: 2 }}>
+            Confirmed by the inspector
+          </Txt>
+        ) : null}
+      </Pressable>
+
+      {open && corrected ? (
         <View style={styles.provenance}>
           <Row gap={6}>
             <Ionicons name="person-outline" size={12} color={colors.info} />
@@ -603,7 +657,7 @@ export function ExtractedFieldCard({
         Co." is obvious in one glance at the pixels and invisible in a list. So
         it is a bordered target now rather than a faint blue link.
       */}
-      {onViewEvidence || onReview ? (
+      {open && (onViewEvidence || onReview) ? (
         <Row gap={spacing.sm} style={{ marginTop: spacing.md }}>
           {onViewEvidence && field.boundingBox ? (
             <Pressable
@@ -744,6 +798,81 @@ export function EvidenceView({
         />
       ) : null}
     </View>
+  );
+}
+
+/**
+ * ── WHAT THE CAMERA ACTUALLY READ ───────────────────────────────────────────
+ *
+ * Every other view on this record shows what the system *concluded*: the
+ * declarations it matched, the rules it applied, the findings it raised. None
+ * of them can answer the question an officer asks when a mandatory declaration
+ * comes back missing — was it not printed on the package, or was it printed and
+ * not read?
+ *
+ * Those are two completely different things. The first is a finding against the
+ * trader under rule 6(1); the second is a defect in this software, and recording
+ * it as the first is the worst thing this system can do. The evidence to tell
+ * them apart is the text itself, and it was being thrown away at the edge of the
+ * screen while sitting in the record all along.
+ *
+ * So: the lines, in reading order, with the ones no declaration claimed shown
+ * faintly. An officer scanning for "MRP" finds it here or does not, and either
+ * way they know which of the two they are looking at.
+ *
+ * Deliberately plain. This is a diagnostic read, not a document — no cards, no
+ * icons, no per-line chrome. A hundred lines of label text with a tick against
+ * each one is unreadable, and unreadable is the one thing this must not be.
+ */
+export function LabelTextView({ scan }: { scan: ScanRecord }) {
+  const lines = (scan.ocr.rawText ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+
+  // Membership, not position: the same string can appear on two faces, and the
+  // extractor reports unclaimed lines by value.
+  const unclaimed = new Set(scan.extraction.unclaimedLines ?? []);
+
+  if (lines.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon="document-outline"
+          title="No text was read"
+          message="The recogniser returned nothing from these photographs. A declaration cannot be reported missing on this evidence."
+        />
+      </Card>
+    );
+  }
+
+  const claimedCount = lines.filter((line) => !unclaimed.has(line)).length;
+
+  return (
+    <>
+      <Card>
+        {lines.map((line, index) => {
+          const used = !unclaimed.has(line);
+
+          return (
+            <Txt
+              key={`${index}-${line}`}
+              variant="caption"
+              color={used ? colors.text : colors.textFaint}
+              style={{ paddingVertical: 3 }}
+            >
+              {line}
+            </Txt>
+          );
+        })}
+      </Card>
+
+      {/* Under the text, not over it. The reader came here for the lines. */}
+      <Txt variant="caption" color={colors.textMuted} style={{ marginTop: spacing.sm }}>
+        {pluralize(lines.length, 'line')} read · {claimedCount} used for a declaration ·{' '}
+        {lines.length - claimedCount} shown faintly, matched to none
+      </Txt>
+    </>
   );
 }
 

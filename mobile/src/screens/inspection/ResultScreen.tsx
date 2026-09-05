@@ -10,6 +10,7 @@ import {
   ExtractedFieldCard,
   ComplianceTally,
   ConfidencePill,
+  LabelTextView,
   VerdictPanel,
   ViolationCard,
 } from '../../components/domain';
@@ -35,7 +36,7 @@ import { formatConfidence, formatDuration, pluralize } from '../../utils/format'
 
 import { INSPECTION_STEPS } from './InspectionDetailsScreen';
 
-type Tab = 'fields' | 'issues' | 'checks';
+type Tab = 'fields' | 'issues' | 'checks' | 'text';
 
 /**
  * Step 5 — the compliance result.
@@ -118,6 +119,13 @@ export function ResultScreen() {
     { value: 'issues', label: 'Findings', count: issueCount },
     { value: 'checks', label: 'Rule checks', count: compliance.checks.length },
   ];
+
+  // Only where there is a reading to show. A record from the older analyse
+  // route has no scan, and a tab that opens on an empty state is a tab that
+  // should not have been offered.
+  if (scan?.ocr.rawText) {
+    tabs.push({ value: 'text', label: 'Label text', count: scan.ocr.lineCount });
+  }
 
   return (
     <Screen>
@@ -220,30 +228,65 @@ export function ResultScreen() {
           />
         ) : null}
 
-        {/* Everything an inspector may need and does not need in front of them. */}
+        {/*
+          ── WHY THIS IS NO LONGER CALLED "SCAN DETAILS" ─────────────────
+
+          It never was. Under that heading sat the product category, the
+          product name and the origin — none of which is a detail of the scan.
+          The category is what the inspector selected (or what the commodity
+          nouns on the label classified it as), and it is the single most
+          consequential value on this screen: it decides which rules reach the
+          package at all. Filing it under a machine heading, between the mean
+          confidence and the processing time, buried it.
+
+          What was actually about the scan has gone, because each part of it
+          was already said better somewhere else on the page:
+
+            · mean confidence — an average across a whole label. The figure an
+              officer can act on is per-declaration, and it is on every
+              declaration card and in the report's Source column.
+            · processing time and photographs read — facts about the run. They
+              are on the filed record, which is where somebody auditing the run
+              looks.
+            · rule set — the verdict panel already says "Assessed against
+              LM-PC-2026-05-29", four lines above this.
+            · not-applicable count — the tally under the verdict now names it.
+
+          What is left is what was examined. It keeps a chevron because an
+          officer who selected the category themselves does not need it read
+          back to them; it is here to be checked, not announced.
+        */}
         <Disclosure
-          title="Scan details"
-          icon="options-outline"
+          title="Commodity examined"
+          icon="cube-outline"
           style={{ marginTop: spacing.md }}
         >
-          <Detail label="Product category" value={productCategoryLabels[analysis.category]} />
+          <Detail label="Category" value={productCategoryLabels[analysis.category]} />
           {details.productName ? <Detail label="Product" value={details.productName} /> : null}
+          {/* Imported packages carry declarations domestic ones do not — rule
+              6(1)(aa) among them — so this is a legal fact about the commodity,
+              not a statistic. */}
           <Detail label="Origin" value={analysis.origin === 'imported' ? 'Imported' : 'Domestic'} />
-          <Detail label="Mean confidence" value={formatConfidence(analysis.meanConfidence)} />
-          <Detail label="Photographs read" value={`${analysis.imageIds.length}`} />
-          <Detail label="Processing time" value={formatDuration(analysis.processingMs)} />
-          <Detail label="Rule set" value={scan ? scan.ruleSetVersion : compliance.ruleSetId} />
-          {scan && scan.summary.notApplicable > 0 ? (
-            <Detail label="Not applicable" value={`${scan.summary.notApplicable} checks`} />
-          ) : null}
-          {scan && scan.summary.pendingCapability > 0 ? (
-            <Txt variant="caption" color={colors.textMuted} style={{ marginTop: spacing.sm }}>
-              {pluralize(scan.summary.pendingCapability, 'check')} need the printed text measured in
-              millimetres, which a photograph alone cannot give — check the font size against the
-              package itself.
-            </Txt>
-          ) : null}
         </Disclosure>
+
+        {/*
+          Out of the disclosure and onto the page.
+
+          This is not a statistic, it is the one instruction the screening
+          cannot carry out for the officer: a type-height rule needs the print
+          measured in millimetres against the packet, and no photograph can give
+          that. Folded away it was a requirement of rule 7 that nobody saw —
+          and this screen's own rule is that a warning behind a chevron is a
+          warning nobody sees.
+        */}
+        {scan && scan.summary.pendingCapability > 0 ? (
+          <Notice
+            tone="warning"
+            icon="resize-outline"
+            text={`${pluralize(scan.summary.pendingCapability, 'check')} need the printed text measured in millimetres against the package — a photograph alone cannot settle the type height required by rule 7.`}
+            style={{ marginTop: spacing.md }}
+          />
+        ) : null}
 
         {compliance.warnings.length > 0 ? (
           <Disclosure
@@ -310,6 +353,10 @@ export function ResultScreen() {
                 <ViolationCard key={violation.id} violation={violation} index={position + 1} />
               ))
             )
+          ) : tab === 'text' ? (
+            scan ? (
+              <LabelTextView scan={scan} />
+            ) : null
           ) : (
             <Card>
               {compliance.checks.map((check, index) => (

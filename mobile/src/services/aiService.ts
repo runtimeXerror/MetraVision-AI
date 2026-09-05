@@ -1,3 +1,4 @@
+import { SCAN_TIMEOUT_MS } from '../constants/config';
 import { ApiError, type AIAnalysis, type ProductImage, type ScanRecord } from '../types';
 
 import { request } from './api';
@@ -119,6 +120,9 @@ export async function scanProduct(
         ? { category: toWireCategory(categoryHint as never) }
         : undefined,
     },
+    // OCR on several photographs takes tens of seconds. On the default leash
+    // this request was aborted before the pipeline could answer.
+    timeoutMs: SCAN_TIMEOUT_MS,
     signal,
   });
 
@@ -190,6 +194,7 @@ export async function reanalyze(inspectionId: string): Promise<ScanOutcome> {
   const dto = await request<InspectionDTO>(`/inspections/${inspectionId}/scan`, {
     method: 'POST',
     body: { inspectionDate: new Date().toISOString().slice(0, 10) },
+    timeoutMs: SCAN_TIMEOUT_MS,
   });
 
   const analysis = toAnalysis(dto);

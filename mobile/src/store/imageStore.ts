@@ -182,3 +182,40 @@ export function lowestQualityScore(images: ProductImage[]): number {
   const scores = images.map((image) => image.quality?.overallScore ?? 1);
   return scores.length > 0 ? Math.min(...scores) : 1;
 }
+
+/* ── Derived helpers ──────────────────────────────────────────────────────── */
+
+/**
+ * The photograph a server-side `imageId` refers to.
+ *
+ * Two id spaces meet here and they are not the same space. A photograph gets a
+ * device-local id the moment the camera returns, and a *different* id when the
+ * server stores it; `uploaded` is the map between them, written at upload time.
+ *
+ * Everything the backend says about a reading — including the `sourceImageId`
+ * on every extracted declaration — is in the server's space. Looking one up
+ * with `images.find((image) => image.id === sourceImageId)` therefore never
+ * matched, and the evidence viewer, whose whole job is to show an inspector
+ * the pixels a value was read from, silently rendered its empty placeholder
+ * every single time. It looked like a feature with nothing behind it. It was a
+ * lookup in the wrong namespace.
+ *
+ * Takes the two slices rather than reading the store itself, so a screen that
+ * subscribes to them re-renders when a re-photograph changes either one.
+ */
+export function imageForRemoteId(
+  remoteId: string | undefined,
+  images: ProductImage[],
+  uploaded: Record<string, string>,
+): ProductImage | undefined {
+  if (!remoteId) return undefined;
+
+  const localId = Object.keys(uploaded).find((key) => uploaded[key] === remoteId);
+  return (
+    images.find((image) => image.id === localId) ??
+    // A record opened from history was never uploaded from this device, so
+    // there is no local id to map through — but the images hydrated onto it
+    // already carry the server's own ids.
+    images.find((image) => image.id === remoteId)
+  );
+}

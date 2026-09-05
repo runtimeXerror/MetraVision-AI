@@ -174,23 +174,59 @@ const STYLES = `
   .scope { margin-top: 9px; color: #444444; }
 
   /* Sections */
+  /*
+   * ── ONE COLOUR, AND WHERE IT IS SPENT ─────────────────────────────────
+   *
+   * The document was black on white, for a reason that still holds: a filled
+   * colour panel costs a district office a cartridge every time a copy is run
+   * off. That argument is about *area*, though, and it was being applied to
+   * everything — so a fourteen-page report had no visual structure at all and
+   * a reader looking for the findings had to read the headings to find them.
+   *
+   * The departmental navy is spent only on strokes and small type: section
+   * headings, the rule under them, and the column heads. Nothing is filled.
+   * A page of this prints for the same ink as before, and the sections are
+   * findable at arm's length — which is how a report on a desk is actually
+   * read.
+   *
+   * It is the same navy the app uses on screen, so the report an officer shows
+   * a dealer and the PDF that is filed are recognisably one document.
+   */
   h2 {
     font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
-    margin: 20px 0 7px; padding-bottom: 4px; border-bottom: 1px solid #1A1A1A;
+    margin: 20px 0 7px; padding-bottom: 4px;
+    color: #0A2A5C; border-bottom: 1px solid #0A2A5C;
   }
   p { margin: 0 0 6px; }
   .muted { color: #444444; }
   .faint { color: #767676; }
   .mono { font-family: "SFMono-Regular", Consolas, monospace; }
 
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 5px 8px; vertical-align: top; border-bottom: 1px solid #E0E0E0; }
+  /*
+   * ── RULED BOTH WAYS ───────────────────────────────────────────────────
+   *
+   * Horizontal rules alone leave a five-column table as five columns held
+   * apart by whitespace, and the moment one cell wraps to three lines the
+   * reader loses which value belongs to which column. That is not cosmetic on
+   * a document where the columns are the declaration, its value and whether it
+   * complies.
+   *
+   * Hairlines, not borders: 0.5px in a light grey, so the grid organises the
+   * page without becoming the loudest thing on it. The outer edge is a shade
+   * darker to close the block.
+   */
+  table { width: 100%; border-collapse: collapse; border: 0.75px solid #C8C8C8; }
+  th, td {
+    text-align: left; padding: 5px 8px; vertical-align: top;
+    border-bottom: 0.5px solid #E0E0E0; border-right: 0.5px solid #E0E0E0;
+  }
+  th:last-child, td:last-child { border-right: none; }
   th {
     font-size: 7.5px; letter-spacing: 0.6px; text-transform: uppercase;
-    color: #666666; font-weight: 700; border-bottom: 1px solid #1A1A1A;
+    color: #0A2A5C; font-weight: 700; border-bottom: 1px solid #0A2A5C;
   }
   td.num, th.num { text-align: right; white-space: nowrap; }
-  tr.total td { font-weight: 700; border-bottom: none; border-top: 1px solid #1A1A1A; }
+  tr.total td { font-weight: 700; border-bottom: none; border-top: 1px solid #0A2A5C; }
   table.kv td:first-child { width: 33%; color: #444444; }
   table.kv td:last-child { font-weight: 700; }
 
