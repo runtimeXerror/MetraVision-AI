@@ -86,7 +86,7 @@ IMAGE  →  OCR API  →  raw text + located regions  →  field extraction
 
 Every stage is behind an interface and every stage records its own version, so
 an inspection is reproducible and the OCR engine is replaceable. Details:
-[`ML_OCR/README.md`](ML_OCR/README.md).
+[`docs/ocr-pipeline.md`](docs/ocr-pipeline.md).
 
 ```
 React Native (Expo)          React (Vite)

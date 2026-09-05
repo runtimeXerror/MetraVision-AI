@@ -147,7 +147,7 @@ Python sidecar. It returns a bounding box and a confidence for every line, costs
 nothing per scan, and keeps inspection photographs on the machine — at the price
 of a second process and about a gigabyte of RAM. Google Cloud Vision remains
 available as the cloud alternative. The reasoning for both is written out in
-[`ML_OCR/README.md`](../ML_OCR/README.md); the sidecar's own contract is in
+[`ocr-pipeline.md`](ocr-pipeline.md); the sidecar's own contract is in
 [`ocr-service/README.md`](../ocr-service/README.md).
 
 ### Three things the pipeline refuses to do

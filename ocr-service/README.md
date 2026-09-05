@@ -10,7 +10,7 @@ GET  /health    readiness, engine version, configured languages
 This service reads pixels. It does not know what an MRP is, which declarations
 the law requires, or what a missing one means — every judgement belongs to the
 rule engine in `backend/src/compliance/`, one process away. See
-[`ML_OCR/README.md`](../ML_OCR/README.md) for how the whole pipeline fits
+[`docs/ocr-pipeline.md`](../docs/ocr-pipeline.md) for how the whole pipeline fits
 together.
 
 ## Running it
@@ -33,6 +33,7 @@ python -m venv .venv
 # .venv/bin/python -m pip install -r requirements.txt        # macOS / Linux
 
 .venv/Scripts/python -m uvicorn app:app --port 8001
+v\Scripts\python.exe -m uvicorn app:app --port 8001
 ```
 
 The **first start downloads the pretrained weights** (a minute or two, needs a
