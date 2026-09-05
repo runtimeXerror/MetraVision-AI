@@ -1,4 +1,4 @@
-export { runScan } from './scanService';
+export { runScan, OCR_BUDGET_MS } from './scanService';
 export type { RunScanInput, ScanImageInput, ScanOutcome } from './scanService';
 
 export { captureCompletenessFor, toComplianceRequest } from './ComplianceInputAdapter';

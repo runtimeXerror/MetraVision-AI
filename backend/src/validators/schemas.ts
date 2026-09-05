@@ -217,6 +217,21 @@ export const bulkReviewSchema = z.object({
   reviews: z.array(reviewSchema).min(1, 'Provide at least one review decision.').max(40),
 });
 
+/**
+ * A determination recorded after the inspection was filed.
+ *
+ * The same shape as a review, because it is the same judgement — what differs
+ * is only that the record is closed, so it is written beside the filed values
+ * rather than into them. A note is encouraged and not required: an officer
+ * finishing a review they ran out of time for at the premises has nothing to
+ * explain, while one changing a value months later usually does.
+ */
+export const amendmentSchema = reviewSchema;
+
+export const bulkAmendmentSchema = z.object({
+  amendments: z.array(reviewSchema).min(1, 'Provide at least one determination.').max(40),
+});
+
 /* ── Analytics ────────────────────────────────────────────────────────────── */
 
 /**

@@ -153,6 +153,29 @@ export interface InspectionAttrs {
   finalNotes?: string;
   status: InspectionStatus;
   lastReviewedAt?: Date;
+  /**
+   * Determinations recorded *after* the inspection was filed.
+   *
+   * Append-only, and deliberately kept apart from `extractedFields`. An officer
+   * routinely has to file at the premises before they have worked through every
+   * declaration the engine was unsure of — the shop is closing, the dealer is
+   * waiting — and until now there was no way back: the record is FINALIZED and
+   * `assertMutable` refuses every edit, correctly, because a filed enforcement
+   * record that changes quietly is not a record of anything.
+   *
+   * So the filed record is never touched. What the engine concluded, on the
+   * evidence it had, at the moment of filing, stays exactly as filed; the
+   * officer's later determination is written beside it with its own author and
+   * its own timestamp, and the report prints both. A reader can always see what
+   * was decided when, and by whom.
+   *
+   * This is why an amendment does not re-run the rule engine. The verdict on a
+   * filed record is a fact about that filing, and silently recomputing it weeks
+   * later would leave a document whose conclusion no longer matches the evidence
+   * printed underneath it.
+   */
+  amendments?: AmendmentAttrs[];
+  lastAmendedAt?: Date;
   finalizedAt?: Date;
 }
 
@@ -168,7 +191,17 @@ export interface ScanRecordAttrs {
     /** Located lines. Capped on write — see `MAX_STORED_REGIONS`. */
     regions: unknown[];
     processingMs: number;
+    /** The photographs this reading came from — not necessarily all of them. */
     imageIds: string[];
+    /**
+     * Photographs submitted with the scan that could not be read.
+     *
+     * Stored because the report is rendered from this record long after the
+     * scan, and a report that has quietly forgotten which faces went unread
+     * overstates the evidence it rests on. Absent on records written before
+     * this was kept.
+     */
+    unread?: Array<{ imageId: string; code: string; reason: string }>;
   };
   extraction: {
     engine: string;
@@ -179,6 +212,8 @@ export interface ScanRecordAttrs {
     contextSignals: unknown[];
     unclaimedLines: string[];
     warnings: string[];
+    /** Declarations the package says are printed on its carton or crimp. */
+    declaredElsewhere?: string[];
   };
   legal: {
     status: string;
@@ -236,6 +271,37 @@ const imageSchema = new Schema<InspectionImageAttrs>(
     width: Number,
     height: Number,
     createdAt: { type: Date, default: Date.now },
+  },
+  { _id: false },
+);
+
+/** One post-filing determination. See `amendments` above. */
+export interface AmendmentAttrs {
+  /** Machine key of the declaration, matching `extractedFields[].name`. */
+  fieldName: string;
+  /**
+   * What the filed record says, copied at the moment of amendment.
+   *
+   * Stored rather than looked up later, so the report can print "amended from"
+   * without depending on a field that a future migration might reshape.
+   */
+  recordedValue: string | null;
+  action: ReviewAction;
+  value: string | null;
+  comment?: string;
+  amendedBy: Types.ObjectId;
+  amendedAt: Date;
+}
+
+const amendmentSchema = new Schema<AmendmentAttrs>(
+  {
+    fieldName: { type: String, required: true },
+    recordedValue: { type: String, default: null },
+    action: { type: String, enum: REVIEW_ACTIONS, required: true },
+    value: { type: String, default: null },
+    comment: String,
+    amendedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    amendedAt: { type: Date, default: Date.now },
   },
   { _id: false },
 );
@@ -379,6 +445,8 @@ const inspectionSchema = new Schema<InspectionAttrs, InspectionModel, Inspection
     finalNotes: { type: String, trim: true },
     status: { type: String, enum: INSPECTION_STATUSES, default: 'DRAFT', required: true },
     lastReviewedAt: Date,
+    amendments: { type: [amendmentSchema], default: undefined },
+    lastAmendedAt: Date,
     finalizedAt: Date,
   },
   // `minimize: false` so an all-zero compliance summary inside `scan` survives
@@ -548,6 +616,19 @@ inspectionSchema.methods.toDTO = function toDTO(): InspectionDTO {
       pendingFieldCount,
       lastReviewedAt: this.lastReviewedAt?.toISOString(),
     },
+    // Omitted entirely where there are none, so the common case does not carry
+    // an empty array through every list response.
+    amendments: this.amendments?.length
+      ? this.amendments.map((amendment) => ({
+          fieldName: amendment.fieldName,
+          recordedValue: amendment.recordedValue,
+          action: amendment.action,
+          value: amendment.value,
+          comment: amendment.comment,
+          amendedAt: new Date(amendment.amendedAt).toISOString(),
+        }))
+      : undefined,
+    lastAmendedAt: this.lastAmendedAt?.toISOString(),
     notes: this.notes,
     finalNotes: this.finalNotes,
     status: this.status,

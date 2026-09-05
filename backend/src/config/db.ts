@@ -30,6 +30,25 @@ const run = promisify(execFile);
 const DEV_DB_PATH = join(tmpdir(), 'sih26034-dev-mongo');
 
 /**
+ * How long mongod is given to become ready before the attempt is abandoned.
+ *
+ * `mongodb-memory-server` allows ten seconds, which is generous for the empty
+ * directory it assumes and not generous for the one this application keeps: a
+ * mongod opening an existing WiredTiger database replays its journal before it
+ * accepts connections, and on a cold disk that alone outlasts ten seconds. The
+ * start was not stuck when that happened — it was working, and was cut off
+ * shortly before it would have finished, which surfaced as a FATAL
+ * `Instance failed to start within 10000ms` on a database that was perfectly
+ * healthy and started fine on the next try.
+ *
+ * A minute is chosen to be longer than journal replay ever reasonably takes,
+ * because the cost of the two failures is asymmetric: waiting a few extra
+ * seconds for a slow disk costs a few seconds, and giving up too early costs
+ * the whole start.
+ */
+const DEV_DB_LAUNCH_TIMEOUT_MS = 60_000;
+
+/**
  * MongoDB connection.
  *
  * Resolution order:
@@ -114,20 +133,36 @@ export async function disconnectDatabase(): Promise<void> {
 async function startDevMongo(
   MongoMemoryServer: typeof import('mongodb-memory-server').MongoMemoryServer,
 ): Promise<InstanceType<typeof MongoMemoryServer>> {
-  const instance = { dbName: env.MONGODB_DB_NAME, dbPath: DEV_DB_PATH };
+  const instance = {
+    dbName: env.MONGODB_DB_NAME,
+    dbPath: DEV_DB_PATH,
+    launchTimeout: DEV_DB_LAUNCH_TIMEOUT_MS,
+  };
   let reaped = false;
 
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
       return await MongoMemoryServer.create({ instance });
     } catch (error) {
-      const held = String(error).includes('DBPathInUse');
+      const text = String(error);
 
-      if (!held) throw error;
+      // A predecessor blocks this start in two different ways, and both are
+      // worth the same retry. mongod says `DBPathInUse` when it gets far enough
+      // to test the lock file; when it does not — the ordinary case on Windows,
+      // where the outgoing process still holds the directory open — it never
+      // reports anything at all and the attempt ends on the launch timeout
+      // instead. Only the first was treated as retryable, so the commoner of
+      // the two was rethrown on the spot and a restart that a single reap would
+      // have fixed came out as a FATAL.
+      const timedOut = text.includes('failed to start within');
+      const blocked = text.includes('DBPathInUse') || timedOut;
+
+      if (!blocked) throw error;
 
       // A predecessor still holds the lock. Give it a moment to exit on its own
-      // before concluding it never will and killing it.
-      if (attempt >= 2 && !reaped) {
+      // before concluding it never will and killing it — except after a
+      // timeout, which has already waited a full minute for exactly that.
+      if (!reaped && (attempt >= 2 || timedOut)) {
         logger.warn('Database directory still locked — reaping the previous mongod.');
         reaped = await reapStaleMongod();
       }
@@ -137,8 +172,10 @@ async function startDevMongo(
   }
 
   throw new Error(
-    `Could not start MongoDB on ${DEV_DB_PATH} — a previous mongod is still holding it. ` +
-      'Kill any leftover mongod process and start again, or set MONGODB_URI.',
+    `Could not start MongoDB on ${DEV_DB_PATH} — a previous mongod is still holding it, ` +
+      'or it could not open the database within ' +
+      `${DEV_DB_LAUNCH_TIMEOUT_MS / 1000}s. Kill any leftover mongod process and start again, ` +
+      'or set MONGODB_URI.',
   );
 }
 

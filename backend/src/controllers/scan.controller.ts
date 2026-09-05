@@ -22,6 +22,8 @@ import {
   scoreFor,
   renderReportHtml,
   buildReport,
+  OCR_BUDGET_MS,
+  type ScanImageInput,
 } from '../services/scan';
 import { storage } from '../services/storage';
 import type { ImageType, ProductCategory } from '../types/domain';
@@ -58,6 +60,28 @@ import { getReport as legacyReport, loadInspection } from './inspection.controll
  * text — which is what a re-extraction actually needs — is kept whole.
  */
 const MAX_STORED_REGIONS = 400;
+
+/**
+ * How long a running scan may hold an inspection to itself.
+ *
+ * A record is flipped to `PROCESSING` for the duration of its scan, and a
+ * second scan arriving in that window is refused rather than run: both would
+ * load their own copy of the document and save it, and the one that saved
+ * second would fail on the document version — which reached the inspector as
+ * `INTERNAL_ERROR`, with no hint that the first scan was still working.
+ *
+ * The window is the work's own ceiling: `OCR_BUDGET_MS` bounds the read of
+ * every photograph together, one image may overrun the deadline by its own
+ * `OCR_TIMEOUT_MS`, and the rule engine and the save follow. Past that the run
+ * that set `PROCESSING` cannot still be alive — the process was killed
+ * mid-scan — and the record must not stay locked by a scan that is never
+ * coming back, so the next caller takes it over.
+ *
+ * Derived rather than multiplied by the image count, which is what it was
+ * before: with a per-image ceiling of 45s, seven photographs bought a
+ * five-minute lock for a scan that cannot run past two.
+ */
+const SCAN_LEASE_MS = OCR_BUDGET_MS + env.OCR_TIMEOUT_MS + 15_000;
 
 function filesFrom(req: Request): Express.Multer.File[] {
   const map = req.files as Record<string, Express.Multer.File[]> | undefined;
@@ -123,7 +147,7 @@ export async function scanInspection(req: Request, res: Response): Promise<Respo
 
   /* ── Store the images ──────────────────────────────────────────────────── */
 
-  const stored: Array<{ imageId: string; buffer: Buffer; mimeType: string }> = [];
+  const stored: ScanImageInput[] = [];
 
   for (const [index, file] of uploads.entries()) {
     const object = await storage.put({
@@ -146,7 +170,7 @@ export async function scanInspection(req: Request, res: Response): Promise<Respo
       createdAt: new Date(),
     });
 
-    stored.push({ imageId, buffer: file.buffer, mimeType: file.mimetype });
+    stored.push({ imageId, buffer: file.buffer, mimeType: file.mimetype, face: type });
   }
 
   await inspection.save();
@@ -268,6 +292,25 @@ export async function scanInspection(req: Request, res: Response): Promise<Respo
  * first at read time, so a screen can never show a verdict the engine did not
  * produce.
  */
+/**
+ * What the inspector is told about photographs that were not read.
+ *
+ * One line, not one per image: an inspector needs to know that evidence is
+ * missing and roughly why, and a list of opaque image ids tells them neither.
+ */
+function unreadWarnings(ocr: ScanOutcome['ocr']): string[] {
+  if (ocr.unread.length === 0) return [];
+
+  const total = ocr.unread.length + ocr.perImage.length;
+  const reasons = [...new Set(ocr.unread.map((image) => image.reason))].join(' ');
+
+  return [
+    `${ocr.unread.length} of ${total} photographs could not be read, so nothing declared only on ` +
+      `${ocr.unread.length === 1 ? 'that face' : 'those faces'} was assessed. ${reasons} ` +
+      'Re-run the analysis to try them again.',
+  ];
+}
+
 async function persistScan(inspection: InspectionDocument, outcome: ScanOutcome): Promise<void> {
   const { ocr, extraction, compliance, issues, issueSummary, report } = outcome;
 
@@ -281,7 +324,10 @@ async function persistScan(inspection: InspectionDocument, outcome: ScanOutcome)
       confidenceAvailable: ocr.confidenceAvailable,
       regions: ocr.regions.slice(0, MAX_STORED_REGIONS),
       processingMs: ocr.processingTimeMs,
-      imageIds: inspection.images.map((image) => image.imageId),
+      // The photographs this reading actually came from. A face that could not
+      // be read contributed nothing and is not listed here as though it had.
+      imageIds: ocr.perImage.map((result) => result.imageId),
+      unread: ocr.unread,
     },
     extraction: {
       engine: extraction.engine,
@@ -344,9 +390,16 @@ async function persistScan(inspection: InspectionDocument, outcome: ScanOutcome)
         ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length
         : 0,
     processingMs: outcome.timings.totalMs,
-    imageIds: inspection.images.map((image) => image.imageId),
+    imageIds: ocr.perImage.map((result) => result.imageId),
     analysedAt: new Date(),
-    warnings: [...compliance.warnings.map((warning) => warning.message), ...extraction.warnings],
+    // The unread faces lead, because they change how everything under them
+    // should be read: a declaration the app reports as missing may simply be
+    // on a photograph the OCR never got through.
+    warnings: [
+      ...unreadWarnings(ocr),
+      ...compliance.warnings.map((warning) => warning.message),
+      ...extraction.warnings,
+    ],
     // Every stored bbox is in the first image's own pixel space.
     bboxSpaceWidth: ocr.perImage[0]?.imageSize?.width ?? 0,
     bboxSpaceHeight: ocr.perImage[0]?.imageSize?.height ?? 0,
@@ -398,10 +451,29 @@ export async function rescanInspection(req: Request, res: Response): Promise<Res
     );
   }
 
+  /* ── One scan at a time, per record ────────────────────────────────────── */
+
+  if (inspection.status === 'PROCESSING') {
+    const heldSince = inspection.get('updatedAt') as Date | undefined;
+    const heldForMs = heldSince ? Date.now() - heldSince.getTime() : Number.POSITIVE_INFINITY;
+
+    if (heldForMs < SCAN_LEASE_MS) {
+      throw ApiError.conflict(
+        'A scan of this inspection is already running. Wait for it to finish before starting another.',
+        'SCAN_IN_PROGRESS',
+      );
+    }
+
+    logger.warn(
+      { inspectionId: inspection.inspectionId, heldForMs },
+      'inspection left in PROCESSING by a scan that never finished; taking it over',
+    );
+  }
+
   const body = req.body as { inspectionDate?: string; productContext?: ScanBody['productContext']; mockFixture?: string };
   const provider = providerFor(body.mockFixture);
 
-  const images: Array<{ imageId: string; buffer: Buffer; mimeType: string }> = [];
+  const images: ScanImageInput[] = [];
   for (const image of inspection.images) {
     if (!image.storageKey) continue;
     try {
@@ -409,6 +481,7 @@ export async function rescanInspection(req: Request, res: Response): Promise<Res
         imageId: image.imageId,
         buffer: await storage.get(image.storageKey),
         mimeType: image.mimeType,
+        face: image.type,
       });
     } catch {
       // A record whose bytes have gone is a storage problem, not a compliance
@@ -544,9 +617,20 @@ export async function getReport(req: Request, res: Response): Promise<Response |
       providerVersion: scan.ocr.providerVersion,
       rawText: scan.ocr.rawText,
       regions: scan.ocr.regions as never,
-      perImage: [],
+      // Rebuilt from the ids the reading actually came from, so the report's
+      // limitations still count the faces that were read against the faces
+      // that were submitted.
+      perImage: scan.ocr.imageIds.map((imageId) => ({
+        imageId,
+        rawText: '',
+        regions: [],
+        provider: scan.ocr.provider,
+        providerVersion: scan.ocr.providerVersion,
+        confidenceAvailable: scan.ocr.confidenceAvailable,
+      })),
       processingTimeMs: scan.ocr.processingMs,
       confidenceAvailable: scan.ocr.confidenceAvailable,
+      unread: scan.ocr.unread ?? [],
     },
     extraction: {
       engine: scan.extraction.engine,
@@ -556,6 +640,7 @@ export async function getReport(req: Request, res: Response): Promise<Response |
       contextSignals: scan.extraction.contextSignals as never,
       unclaimedLines: scan.extraction.unclaimedLines,
       warnings: scan.extraction.warnings,
+      declaredElsewhere: scan.extraction.declaredElsewhere ?? [],
       processingTimeMs: scan.extraction.processingMs,
       lineCount: scan.ocr.lineCount,
     },

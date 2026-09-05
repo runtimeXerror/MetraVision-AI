@@ -356,6 +356,21 @@ export interface InspectionDTO {
     pendingFieldCount: number;
     lastReviewedAt?: string;
   };
+  /**
+   * Determinations recorded after the inspection was filed.
+   *
+   * Absent where there are none. See `AmendmentAttrs` on the model for why
+   * these sit beside the filed record rather than inside it.
+   */
+  amendments?: Array<{
+    fieldName: string;
+    recordedValue: string | null;
+    action: ReviewAction;
+    value: string | null;
+    comment?: string;
+    amendedAt: string;
+  }>;
+  lastAmendedAt?: string;
   notes?: string;
   finalNotes?: string;
   status: InspectionStatus;

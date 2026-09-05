@@ -86,6 +86,14 @@ export interface OCRProvider {
   configurationHint(): string | null;
 }
 
+/** One photograph the read could not account for, and why. */
+export interface UnreadImage {
+  imageId: string;
+  /** The `OCR_*` code, so the audit record says which failure this was. */
+  code: string;
+  reason: string;
+}
+
 /** Merges per-image results into the one payload the extractor consumes. */
 export interface AggregateOCRResult {
   provider: string;
@@ -96,9 +104,23 @@ export interface AggregateOCRResult {
   perImage: OCRResult[];
   processingTimeMs: number;
   confidenceAvailable: boolean;
+  /**
+   * Photographs that were submitted and not read.
+   *
+   * Carried rather than dropped, because the difference between "this package
+   * declares no batch number" and "the face carrying it was never read" is the
+   * difference between a finding and a bug. Everything downstream counts the
+   * images in `perImage`; this is what says why that is fewer than the
+   * inspector photographed.
+   */
+  unread: UnreadImage[];
 }
 
-export function aggregate(results: OCRResult[], processingTimeMs: number): AggregateOCRResult {
+export function aggregate(
+  results: OCRResult[],
+  processingTimeMs: number,
+  unread: UnreadImage[] = [],
+): AggregateOCRResult {
   const first = results[0];
 
   return {
@@ -109,5 +131,6 @@ export function aggregate(results: OCRResult[], processingTimeMs: number): Aggre
     perImage: results,
     processingTimeMs,
     confidenceAvailable: results.some((result) => result.confidenceAvailable),
+    unread,
   };
 }

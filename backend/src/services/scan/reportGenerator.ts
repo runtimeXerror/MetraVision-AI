@@ -209,6 +209,18 @@ function limitationsFor(input: ReportInput): string[] {
     );
   }
 
+  if (input.ocr.unread.length > 0) {
+    limitations.push(
+      `${input.ocr.unread.length} of the ${
+        input.ocr.unread.length + input.ocr.perImage.length
+      } submitted photograph${
+        input.ocr.unread.length + input.ocr.perImage.length === 1 ? '' : 's'
+      } could not be read (${[...new Set(input.ocr.unread.map((image) => image.reason))].join(
+        ' ',
+      )}) and contributed no evidence. Anything declared only on those faces is absent from this report.`,
+    );
+  }
+
   if (!input.ocr.confidenceAvailable) {
     limitations.push(
       'The OCR provider returned no per-reading confidence. Every value has therefore been treated as of unknown reliability, which routes failed checks to review rather than to a finding.',

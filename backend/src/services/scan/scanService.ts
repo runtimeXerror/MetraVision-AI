@@ -5,7 +5,13 @@ import type { ComplianceResult } from '../../compliance/types/ComplianceResult';
 import { logger } from '../../config/logger';
 import { ApiError } from '../../utils/ApiError';
 import { extractInformation, type ExtractionResult } from '../extraction';
-import { aggregate, ocrProvider, type AggregateOCRResult, type OCRProvider } from '../ocr';
+import {
+  aggregate,
+  ocrProvider,
+  type AggregateOCRResult,
+  type OCRProvider,
+  type UnreadImage,
+} from '../ocr';
 
 import { toComplianceRequest, type ScanProductContext } from './ComplianceInputAdapter';
 import { generateIssues, type ComplianceIssue, type IssueSummary } from './issueGenerator';
@@ -30,12 +36,19 @@ import { buildReport, type ComplianceReport } from './reportGenerator';
  * contain: the rule engine is imported, not reimplemented, and its result is
  * passed on unchanged.
  *
- * The failure rule is the other thing worth reading here. If OCR fails, the
- * pipeline stops. It does not carry on with an empty field set, because an
- * empty field set is indistinguishable to the engine from a package with no
- * declarations on it, and the difference between "the OCR service timed out"
- * and "this trader sold unlabelled goods" is the whole difference between a
- * bug and a false accusation. See §31.
+ * The failure rule is the other thing worth reading here. If the read produces
+ * nothing at all, the pipeline stops. It does not carry on with an empty field
+ * set, because an empty field set is indistinguishable to the engine from a
+ * package with no declarations on it, and the difference between "the OCR
+ * service timed out" and "this trader sold unlabelled goods" is the whole
+ * difference between a bug and a false accusation. See §31.
+ *
+ * A read that produces *something* is a different case and is not stopped. One
+ * unreadable photograph out of seven is not grounds to throw away the six that
+ * read, so those faces are evaluated and the ones that failed are carried on
+ * `ocr.unread` — which lowers the capture completeness the engine is given, so
+ * a declaration missing from the faces that were read is routed to review
+ * rather than recorded as absent.
  * ────────────────────────────────────────────────────────────────────────────
  */
 
@@ -43,6 +56,12 @@ export interface ScanImageInput {
   imageId: string;
   buffer: Buffer;
   mimeType: string;
+  /**
+   * Which panel of the package this photograph shows — `FRONT`, `BACK`, and so
+   * on, as the capture flow recorded it. Feeds the capture-completeness count,
+   * which is about faces and not about how many attempts each one took.
+   */
+  face?: string;
 }
 
 export interface RunScanInput {
@@ -74,24 +93,103 @@ function reportId(): string {
 }
 
 /**
+ * The whole read's budget, across every photograph on the inspection.
+ *
+ * `OCR_TIMEOUT_MS` bounds one image; nothing bounded the sum, so a seven-image
+ * inspection could legitimately ask for seven times it. The client waiting on
+ * the other end gives up long before that and reports a timed-out request,
+ * while this process carries on and files a report nobody is waiting for.
+ *
+ * So the read has a deadline of its own, and it is set to fit inside the
+ * mobile app's leash (`SCAN_TIMEOUT_MS`, 180s) rather than to a round number.
+ * The deadline stops the loop *starting* another photograph, so the read can
+ * still overrun by the one already in flight: 105s + `OCR_TIMEOUT_MS` (45s) is
+ * 150s, and the rule engine, the report and the save go in the 30s left.
+ *
+ * Past the deadline the remaining photographs are recorded as unread and the
+ * scan is evaluated on what was read — a report drawn from five faces, saying
+ * on its own front that it is, beats an error drawn from none.
+ */
+export const OCR_BUDGET_MS = 105_000;
+
+/**
  * Runs OCR over every image.
  *
  * Sequential rather than parallel: a scan is at most a handful of photographs,
  * cloud OCR is rate-limited per project, and firing four requests at once is
  * how a demo earns a 429 instead of a faster answer.
+ *
+ * A photograph that cannot be read is recorded and stepped over rather than
+ * ending the scan. It used to end it, and the cost was out of all proportion:
+ * one curved or dark face that ran past `OCR_TIMEOUT_MS` threw away the six
+ * faces that had already been read successfully, and the inspector — who had
+ * photographed the package properly — was told the analysis had failed. The
+ * read that did happen is evidence, and it is not improved by discarding it.
+ *
+ * What must not happen is the opposite mistake: quietly evaluating a package
+ * on fewer faces than were submitted, as though the missing ones had been read
+ * and found blank. Hence `unread`, which travels with the result, lowers the
+ * capture completeness the rule engine is given, and is printed in the report.
  */
 async function readImages(
   provider: OCRProvider,
   images: ScanImageInput[],
+  inspectionId: string,
 ): Promise<AggregateOCRResult> {
   const startedAt = Date.now();
-  const results = [];
+  const results: Awaited<ReturnType<OCRProvider['extractText']>>[] = [];
+  const unread: UnreadImage[] = [];
+
+  /**
+   * The first failure, kept for the case where nothing reads at all.
+   *
+   * When every photograph fails the scan still has to fail, and it has to fail
+   * with the reason — `OCR_SERVICE_DOWN` and `OCR_TIMEOUT` send an inspector
+   * to two different places.
+   */
+  let firstFailure: unknown;
 
   for (const image of images) {
-    results.push(await provider.extractText(image));
+    if (Date.now() - startedAt >= OCR_BUDGET_MS) {
+      unread.push({
+        imageId: image.imageId,
+        code: 'OCR_BUDGET_EXHAUSTED',
+        reason: 'Reading the earlier photographs used the time allowed for this scan.',
+      });
+      continue;
+    }
+
+    try {
+      results.push(await provider.extractText(image));
+    } catch (error) {
+      firstFailure ??= error;
+
+      const apiError = error instanceof ApiError ? error : undefined;
+      unread.push({
+        imageId: image.imageId,
+        code: apiError?.errorCode ?? 'OCR_FAILED',
+        reason: apiError?.message ?? 'The OCR service could not read this photograph.',
+      });
+
+      logger.warn(
+        {
+          inspectionId,
+          imageId: image.imageId,
+          errorCode: apiError?.errorCode ?? 'OCR_FAILED',
+          provider: provider.name,
+        },
+        'image could not be read; continuing with the rest of the scan',
+      );
+    }
   }
 
-  return aggregate(results, Date.now() - startedAt);
+  // Nothing read means there is nothing to evaluate, and the reason the first
+  // photograph failed is the reason the scan failed.
+  if (results.length === 0) {
+    throw firstFailure ?? new ApiError(503, 'OCR_FAILED', 'No photograph on this inspection could be read.');
+  }
+
+  return aggregate(results, Date.now() - startedAt, unread);
 }
 
 /**
@@ -113,7 +211,7 @@ export async function runScan(input: RunScanInput): Promise<ScanOutcome> {
 
   let ocr: AggregateOCRResult;
   try {
-    ocr = await readImages(provider, input.images);
+    ocr = await readImages(provider, input.images, input.inspectionId);
   } catch (error) {
     // Re-thrown with the scan's own code so a client can tell a failed read
     // from a failed evaluation, and so nothing downstream ever runs on a read
@@ -164,7 +262,16 @@ export async function runScan(input: RunScanInput): Promise<ScanOutcome> {
     productContext: input.productContext,
     extraction,
     ocr,
-    imageIds: input.images.map((image) => image.imageId),
+    // The images that were *read*, not the images that were submitted. Capture
+    // completeness is derived from this count, and counting a photograph the
+    // OCR never saw would tell the engine the package was more completely
+    // captured than it was — which is how an absent declaration turns into a
+    // violation on evidence that does not exist.
+    imageIds: ocr.perImage.map((result) => result.imageId),
+    images: ocr.perImage.map((result) => ({
+      imageId: result.imageId,
+      face: input.images.find((image) => image.imageId === result.imageId)?.face,
+    })),
   });
 
   /* ── Stage 4: the existing rule engine ────────────────────────────────── */

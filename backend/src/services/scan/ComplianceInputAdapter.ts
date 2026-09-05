@@ -52,6 +52,14 @@ export interface AdapterInput {
   extraction: ExtractionResult;
   ocr: AggregateOCRResult;
   imageIds: string[];
+  /**
+   * The photographs behind those ids, with the panel each one shows.
+   *
+   * Optional so a caller that has only ids still works; without it every
+   * photograph is treated as a face of its own, which is what the ids alone
+   * can support.
+   */
+  images?: Array<{ imageId: string; face?: string }>;
 }
 
 export interface AdapterOutput {
@@ -65,7 +73,7 @@ export interface AdapterOutput {
 
 /**
  * How completely a package is taken to have been captured, from the number of
- * photographs.
+ * distinct faces photographed.
  *
  * A crude proxy for a real thing: a package has six faces, and a declaration
  * cannot be missing from one nobody photographed. The ladder is configuration
@@ -74,15 +82,42 @@ export interface AdapterOutput {
  * should be able to set one without a code change.
  *
  * The default first rung is 0.45 — below the engine's 0.7 floor — which means a
- * single-photograph scan can never record a missing declaration as a violation.
- * That is the intended behaviour, not a limitation: one photograph of the front
- * face is not evidence about the back.
+ * single-face scan can never record a missing declaration as a violation. That
+ * is the intended behaviour, not a limitation: one photograph of the front face
+ * is not evidence about the back.
+ *
+ * Faces, and not photographs, because those two come apart in exactly the case
+ * that matters. An inspector photographing a small cylindrical bottle takes
+ * three or four goes at the *same* panel, trying to get the curve in focus —
+ * and counted as photographs that reached 0.85, past the 0.7 floor, and every
+ * declaration printed on a face nobody had photographed was recorded as a
+ * violation rather than sent for review. Three attempts at one panel is one
+ * face of evidence, and the ladder now reads it as one.
  */
-export function captureCompletenessFor(imageCount: number): number {
+export function captureCompletenessFor(faceCount: number): number {
   const ladder = env.captureCompletenessLadder;
   if (ladder.length === 0) return 0;
-  if (imageCount <= 0) return 0;
-  return ladder[Math.min(imageCount, ladder.length) - 1] ?? 0;
+  if (faceCount <= 0) return 0;
+  return ladder[Math.min(faceCount, ladder.length) - 1] ?? 0;
+}
+
+/**
+ * The distinct faces among a set of photographs.
+ *
+ * An untyped photograph counts as its own face: the capture flow records which
+ * panel the inspector was shooting, and where it did not, assuming two
+ * photographs are of the same face would understate the evidence just as badly
+ * as assuming they differ overstates it.
+ */
+function facesOf(images: Array<{ imageId: string; face?: string }>): string[] {
+  const seen = new Map<string, string>();
+
+  for (const image of images) {
+    const face = image.face?.trim().toUpperCase();
+    seen.set(face && face !== '' ? face : `image:${image.imageId}`, face ?? 'UNSPECIFIED');
+  }
+
+  return [...seen.keys()];
 }
 
 /** Context keys an extraction signal is allowed to set. */
@@ -98,6 +133,7 @@ export function toComplianceRequest(input: AdapterInput): AdapterOutput {
   const { extraction, productContext } = input;
 
   const fields: Record<string, ExtractedField> = {};
+  const declaredElsewhere = new Set(extraction.declaredElsewhere ?? []);
 
   for (const record of Object.values(extraction.fields)) {
     if (record.status === 'FOUND') {
@@ -115,7 +151,27 @@ export function toComplianceRequest(input: AdapterInput): AdapterOutput {
     }
 
     /**
-     * Not found.
+     * Not found — but the package said where it is.
+     *
+     * `For MRP, refer to the carton` is not silence about the MRP; it is the
+     * package telling an inspector that this tube is not the retail unit and
+     * the price is on the box it came in. Zero absence confidence is the
+     * strongest thing this contract can say about that, and it is what stops
+     * the engine recording a violation on a declaration the label has
+     * positively located elsewhere.
+     */
+    if (declaredElsewhere.has(record.field)) {
+      fields[record.field] = {
+        value: null,
+        status: 'NOT_FOUND',
+        absenceConfidence: 0,
+        evidence: [],
+      };
+      continue;
+    }
+
+    /**
+     * Not found, and nothing said otherwise.
      *
      * `absenceConfidence` is deliberately omitted rather than set to zero or to
      * a guess. Omitted, the engine falls back to `captureCompleteness`; set, it
@@ -137,6 +193,32 @@ export function toComplianceRequest(input: AdapterInput): AdapterOutput {
   const appliedSignals: ContextSignal[] = [];
   const overriddenSignals: ContextSignal[] = [];
 
+  /**
+   * The category, where the caller did not state one.
+   *
+   * It decides which rules reach the package at all, so the order matters: an
+   * inspector standing in front of the shelf outranks a word matched in a
+   * vocabulary, and the inference is recorded either way so the disagreement
+   * is visible on the report rather than resolved in silence.
+   */
+  if (extraction.category) {
+    const signal: ContextSignal = {
+      key: 'category',
+      value: extraction.category.value,
+      basis: `Classified from the commodity name printed on the package (confidence ${extraction.category.confidence.toFixed(2)}).`,
+      // The same words the commodity name was read from — an inspector asking
+      // why this package was put under these rules gets shown the noun.
+      evidence: extraction.fields.commodity_name?.evidence ?? [],
+    };
+
+    if (context.category === undefined || context.category === '') {
+      context.category = extraction.category.value;
+      appliedSignals.push(signal);
+    } else if (context.category !== extraction.category.value) {
+      overriddenSignals.push(signal);
+    }
+  }
+
   for (const signal of extraction.contextSignals) {
     const key = signal.key as keyof ProductContext;
     if (!ADOPTABLE.has(key)) continue;
@@ -153,13 +235,15 @@ export function toComplianceRequest(input: AdapterInput): AdapterOutput {
     appliedSignals.push(signal);
   }
 
+  const faces = facesOf(input.images ?? input.imageIds.map((imageId) => ({ imageId })));
+
   const captureCompleteness =
-    productContext.captureCompleteness ?? captureCompletenessFor(input.imageIds.length);
+    productContext.captureCompleteness ?? captureCompletenessFor(faces.length);
 
   const evidence: EvidenceContext = {
     imageIds: input.imageIds,
     captureCompleteness,
-    facesCaptured: input.imageIds.map((_id, index) => `image-${index + 1}`),
+    facesCaptured: faces,
     extractionEngine: `${input.ocr.provider}+${extraction.engine}`,
     extractionEngineVersion: `${input.ocr.providerVersion ?? 'unknown'}+${extraction.engineVersion}`,
   };

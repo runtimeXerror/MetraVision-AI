@@ -101,12 +101,20 @@ const schema = z.object({
   /**
    * Per-image OCR budget.
    *
-   * 20s is generous for a warm sidecar (a 2 MP label reads in 1–3s on a CPU)
-   * and deliberately so: the *first* request after start pays the model load
-   * as well, and an inspector should not see a timeout because they were the
-   * first to scan that morning.
+   * A clean 2 MP label reads in 1–3s on a CPU, and 20s was set against that.
+   * It is the wrong measurement: the sidecar reads a *difficult* image more
+   * than once — contrast, sharpen, upscale, and rotation past that — and those
+   * are exactly the photographs an inspector takes of a curved bottle or a
+   * dark MRP box. Measured on this project's own photographs, a clean face
+   * reads in 2–4s and a face that triggers the extra passes takes 23–27s, so
+   * 20s cut off precisely the images the extra passes exist to rescue.
+   *
+   * 45s covers the worst of those with room for the model load the first
+   * request after start pays. It is a ceiling, not a cost: a scan of clean
+   * faces is no slower for it, and `OCR_BUDGET_MS` in `scanService` bounds
+   * what every image together may take.
    */
-  OCR_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  OCR_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
   /** Comma-separated BCP-47 hints, e.g. `en,hi`. Used by the Vision provider. */
   OCR_LANGUAGE_HINTS: z.string().default('en,hi'),
   /** Pins the mock provider to one fixture. Empty rotates by image content. */

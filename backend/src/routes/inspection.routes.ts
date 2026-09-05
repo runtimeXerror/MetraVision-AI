@@ -15,6 +15,8 @@ import {
   imageIdParam,
   inspectionIdParam,
   listInspectionsQuerySchema,
+  amendmentSchema,
+  bulkAmendmentSchema,
   reviewSchema,
   updateInspectionSchema,
 } from '../validators/schemas';
@@ -104,6 +106,19 @@ router.post(
   // either as the inspector works through the fields.
   validateBody(reviewSchema.or(bulkReviewSchema)),
   asyncHandler(controller.reviewInspection),
+);
+/**
+ * A determination recorded after filing.
+ *
+ * Separate from `/review` on purpose: that one edits an open record, this one
+ * appends to a closed one and never alters what was filed. See
+ * `amendInspection`.
+ */
+router.post(
+  '/:id/amendments',
+  validateParams(inspectionIdParam),
+  validateBody(amendmentSchema.or(bulkAmendmentSchema)),
+  asyncHandler(controller.amendInspection),
 );
 router.post(
   '/:id/finalize',

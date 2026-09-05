@@ -44,4 +44,5 @@ export type {
   OCRRegion,
   OCRRegionKind,
   OCRResult,
+  UnreadImage,
 } from './OCRProvider';

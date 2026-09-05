@@ -3,7 +3,12 @@ import mongoose, { type FilterQuery, type SortOrder } from 'mongoose';
 
 import { canAccessAllInspections } from '../middleware/auth';
 import { query } from '../middleware/validate';
-import { Inspection, type InspectionAttrs, type InspectionDocument } from '../models/Inspection';
+import {
+  Inspection,
+  type AmendmentAttrs,
+  type InspectionAttrs,
+  type InspectionDocument,
+} from '../models/Inspection';
 import { analyseInspection } from '../services/analysisService';
 import { evaluateCompliance, needsReview } from '../services/complianceService';
 import type { ExtractionResult } from '../services/extraction';
@@ -516,6 +521,101 @@ export async function finalizeInspection(req: Request, res: Response): Promise<R
 
   await inspection.save();
   return ok(res, inspection.toDTO(), 'Inspection finalized successfully');
+}
+
+/* ── Amendments ───────────────────────────────────────────────────────────── */
+
+/**
+ * ── REVIEWING A DECLARATION AFTER THE RECORD WAS FILED ──────────────────────
+ *
+ * An officer can finalize with declarations still awaiting confirmation — the
+ * finalize step says so, and it is the right default: the shop is closing, the
+ * dealer is waiting, and a record filed as "pending review" is better than an
+ * inspection abandoned on a phone. What was missing was any way back. The
+ * record is FINALIZED, `assertMutable` refuses every edit, and the officer's
+ * determination had nowhere to go.
+ *
+ * This is that way back, and it does not reopen the record.
+ *
+ *   · `extractedFields` is not touched. What the engine read, and what anyone
+ *     had confirmed at the time of filing, stays exactly as filed.
+ *   · `complianceResult` and `scan` are not touched, and the rule engine is not
+ *     re-run. The verdict on a filed record is a fact about that filing; quietly
+ *     recomputing it weeks later would leave a document whose conclusion no
+ *     longer matches the evidence printed beneath it.
+ *   · `status` stays FINALIZED. An amendment is not a reopening.
+ *
+ * What it does is append. Each determination is stored with the value the filed
+ * record carried at that moment, the officer who made it and when — and the
+ * report prints both, so a reader can always see what was decided when.
+ *
+ * Anyone who may read the inspection may amend it: `loadInspection` has already
+ * scoped that to the officer who filed it, plus supervisors and admins. The
+ * author is recorded on every entry, which is what makes a wider permission
+ * safe here — nothing is overwritten, so the worst a wrong hand can do is add a
+ * line signed with their own name.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+export async function amendInspection(req: Request, res: Response): Promise<Response> {
+  const inspection = await loadInspection(req);
+
+  // Deliberately the inverse of `assertMutable`. Before filing there is a
+  // review endpoint that edits the record properly, and using this instead
+  // would scatter determinations across two places for no reason.
+  if (inspection.status !== 'FINALIZED') {
+    throw ApiError.conflict(
+      'This inspection has not been filed yet. Record the determination through the review step.',
+      'INSPECTION_NOT_FINALIZED',
+    );
+  }
+
+  const body = req.body as ReviewDecision | { amendments: ReviewDecision[] };
+  const decisions: ReviewDecision[] = 'amendments' in body ? body.amendments : [body];
+
+  const now = new Date();
+
+  for (const decision of decisions) {
+    const field = inspection.extractedFields.find((item) => item.name === decision.fieldName);
+
+    if (!field) {
+      throw ApiError.notFound(
+        `No extracted field named "${decision.fieldName}" on this inspection.`,
+        'FIELD_NOT_FOUND',
+      );
+    }
+
+    // The filed value, copied now rather than resolved at read time — see
+    // `AmendmentAttrs.recordedValue`.
+    const recordedValue =
+      field.reviewAction === 'MARKED_UNAVAILABLE'
+        ? null
+        : (field.humanVerifiedValue ?? field.aiValue);
+
+    const value =
+      decision.action === 'ACCEPTED'
+        ? field.aiValue
+        : decision.action === 'EDITED'
+          ? (decision.value ?? null)
+          : null;
+
+    inspection.amendments = [
+      ...(inspection.amendments ?? []),
+      {
+        fieldName: decision.fieldName,
+        recordedValue: recordedValue ?? null,
+        action: decision.action,
+        value,
+        comment: decision.comment,
+        amendedBy: req.user!.id as unknown as AmendmentAttrs['amendedBy'],
+        amendedAt: now,
+      },
+    ];
+  }
+
+  inspection.lastAmendedAt = now;
+
+  await inspection.save();
+  return ok(res, inspection.toDTO(), 'Determination recorded');
 }
 
 /* ── Stats ────────────────────────────────────────────────────────────────── */
