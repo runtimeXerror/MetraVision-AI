@@ -107,7 +107,18 @@ const STYLES = `
    * each sheet — a loose page of an enforcement report has to be traceable to
    * the inspection it came from.
    */
-  table.frame { width: 100%; border-collapse: collapse; }
+  /*
+   * A border of none, explicitly, and it is not redundant.
+   *
+   * The data tables below take a hairline box so their columns read as a grid.
+   * That rule is written against the bare table selector, and this — the
+   * full-page layout frame that carries the letterhead, the body and the footer
+   * spacer — is also a table. So it inherited the box, and every sheet of the
+   * report came out with a rectangle drawn around the whole page.
+   *
+   * The frame is scaffolding for pagination, not a thing anyone should see.
+   */
+  table.frame { width: 100%; border-collapse: collapse; border: none; }
   table.frame > thead > tr > td,
   table.frame > tfoot > tr > td,
   table.frame > tbody > tr > td { padding: 0; }
@@ -242,12 +253,12 @@ const STYLES = `
    * page without becoming the loudest thing on it. The outer edge is a shade
    * darker to close the block.
    */
-  table { width: 100%; border-collapse: collapse; border: 0.75px solid #C8C8C8; }
-  th, td {
+  table:not(.frame) { width: 100%; border-collapse: collapse; border: 0.75px solid #C8C8C8; }
+  table:not(.frame) th, table:not(.frame) td {
     text-align: left; padding: 4px 7px; vertical-align: top;
     border-bottom: 0.5px solid #E0E0E0; border-right: 0.5px solid #E0E0E0;
   }
-  th:last-child, td:last-child { border-right: none; }
+  table:not(.frame) th:last-child, table:not(.frame) td:last-child { border-right: none; }
   th {
     font-size: 7.5px; letter-spacing: 0.6px; text-transform: uppercase;
     color: #0A2A5C; font-weight: 700; border-bottom: 1px solid #0A2A5C;
