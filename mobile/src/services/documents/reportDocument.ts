@@ -46,35 +46,52 @@ function metaFor(report: Report, amendment?: ReportAmendment): DocumentMeta {
 }
 
 /**
- * How a rule check reads in a document served on a dealer.
+ * ── THREE WORDS, AND SILENCE ────────────────────────────────────────────────
  *
- * Not "Pass", "Fail", "Warning", "N/A" — that is the vocabulary of a test
- * runner. The person reading this is being told whether a legal requirement was
- * met, and "Needs review" has to be unmistakably distinct from "Not compliant",
- * because only one of the two is an adverse finding against them.
+ * This column said five things: Compliant, Not compliant, Needs review, Not
+ * applicable, Not assessed. An officer reading a filed report could not tell
+ * the last two apart, and worse, a declaration with a value plainly printed
+ * beside it came back "Not applicable" — which reads as nonsense, because the
+ * value is right there.
  *
- * A declaration with no check against it reads "Not assessed" rather than being
- * left blank: an empty cell in a table of verdicts invites the reader to supply
- * their own, and the engine reaching no conclusion is itself worth stating.
+ * It was not nonsense. A rule can be inapplicable to a commodity while the
+ * declaration it concerns is still printed on the pack — country of origin on a
+ * domestic package, for instance. But a reader is entitled to treat a Result
+ * column as a verdict, and there is no verdict in "this rule was never in
+ * play". Two labels were being spent saying nothing.
+ *
+ * So the column says only what a reader can act on:
+ *
+ *     Compliant       the requirement was met
+ *     Not compliant   it was not — this is a finding
+ *     Needs review    the engine could not decide, a person must
+ *
+ * and where none of those is true it says nothing at all. A blank cell in a
+ * column of verdicts is not an omission; it is the correct statement that there
+ * is no verdict to give.
  */
 function resultCell(check?: { result: string }): string {
   switch (check?.result) {
     case 'pass':
       return 'Compliant';
     case 'fail':
-      return '<b>Not compliant</b>';
+      return '<b class="bad">Not compliant</b>';
     case 'warning':
-      return 'Needs review';
-    case 'not_applicable':
-      return '<span class="muted">Not applicable</span>';
+      return '<span class="review">Needs review</span>';
     default:
-      return '<span class="muted">Not assessed</span>';
+      return '';
   }
 }
 
 /** A value with its superseded original printed underneath, where amended. */
 function amendedCell(current: string | null, original: string | null): string {
-  const shown = current === null || current === '' ? '<span class="muted">Not declared</span>' : esc(current);
+  // Red, because on a compliance report an absent mandatory declaration is the
+  // finding — not a blank to be scanned past. It is the one thing in this table
+  // a reader must not miss.
+  const shown =
+    current === null || current === ''
+      ? '<b class="bad">Not declared</b>'
+      : esc(current);
   if (original === null || original === current) return shown;
 
   return `${shown}<div class="amended">Amended by the officer · recorded as ${
@@ -112,7 +129,7 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
   }
 
   /* Premises */
-  sections.push(`<h2>Premises and officer</h2>
+  sections.push(`<h2>Where and who</h2>
     <table class="kv">
       <tr><td>Business / shop</td><td>${amendedCell(
         amendment?.businessName ?? details.businessName,
@@ -145,7 +162,7 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
 
   /* Commodity */
   const category = amendment?.productCategory ?? details.productCategory ?? analysis?.category ?? 'other';
-  sections.push(`<h2>Commodity examined</h2>
+  sections.push(`<h2>The product</h2>
     <table class="kv">
       <tr><td>Category</td><td>${amendedCell(
         productCategoryLabels[category],
@@ -243,9 +260,7 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
                       violation.observed ? esc(violation.observed) : 'Not declared'
                     }
                   </div>
-                  <div class="cite">Contravenes ${esc(violation.ruleReference)} · ${esc(
-                    violationCategoryLabels[violation.category],
-                  )} · ${esc(violation.code)}</div>
+                  <div class="cite">Contravenes ${esc(violation.ruleReference.split('\u2014')[0]?.trim() ?? violation.ruleReference)}</div>
                   ${
                     violation.recommendation
                       ? `<div class="muted" style="margin-top:4px"><span class="faint">Action:</span> ${esc(
@@ -284,7 +299,7 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
     );
 
     if (packageLevel.length > 0) {
-      sections.push(`<h2>Other requirements</h2>
+      sections.push(`<h2>Other checks</h2>
         <table>
           <tr><th>Requirement</th><th>Rule</th><th>Result</th></tr>
           ${packageLevel
@@ -302,7 +317,7 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
     }
 
     if (analysis.compliance.warnings.length > 0) {
-      sections.push(`<h2>Advisories</h2>
+      sections.push(`<h2>Notes</h2>
         <ul style="margin:0;padding-left:15px">
           ${analysis.compliance.warnings.map((warning) => `<li>${esc(warning)}</li>`).join('')}
         </ul>`);
@@ -330,24 +345,45 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
   const intake = amendment?.inspectorNotes ?? details.inspectorNotes;
   const filing = amendment?.finalNotes ?? inspection.finalNotes;
   if (intake || filing) {
-    sections.push(`<h2>Remarks of the inspecting officer</h2>
+    sections.push(`<h2>Officer notes</h2>
       ${intake ? `<p>${esc(intake)}</p>` : ''}
       ${filing ? `<p>${esc(filing)}</p>` : ''}`);
   }
 
-  /* Attestation */
+  /*
+   * ── ATTESTATION ────────────────────────────────────────────────────────
+   *
+   * Two blocks, and they are deliberately not the same kind of thing.
+   *
+   * The inspecting officer's side is *signed already*. They filed this record
+   * from an authenticated session, at a recorded time, and that act is the
+   * signature — so it is stated as one, with the badge number and the filing
+   * time that make it checkable against the register. Printing a blank rule for
+   * them to sign afterwards would ask for a wet signature on the one thing the
+   * system can already vouch for.
+   *
+   * The Controller's side is a blank rule, because the system cannot vouch for
+   * it. A countersignature is an act by somebody who has not touched this
+   * software, and drawing a line for a pen is the honest representation of
+   * that.
+   */
   sections.push(`
     <div class="sign">
       <div>
-        <div class="line">
-          ${esc(inspection.inspectorName)} · ${esc(inspection.inspectorId)}<br />
-          <span class="faint">Inspecting officer · filed ${esc(
+        <div class="signed">
+          <div class="mark">Digitally filed</div>
+          <div class="who">${esc(inspection.inspectorName)}</div>
+          <div class="faint">${esc(inspection.inspectorId)} · Inspecting officer</div>
+          <div class="faint">${esc(
             formatDateTime(inspection.finalizedAt ?? inspection.updatedAt),
-          )}</span>
+          )}</div>
+          <div class="faint">Record ${esc(inspection.referenceId)}</div>
         </div>
       </div>
       <div>
-        <div class="line"><span class="faint">Controller / Legal Metrology Officer</span></div>
+        <div class="line">
+          <span class="faint">Controller / Legal Metrology Officer</span>
+        </div>
       </div>
     </div>`);
 

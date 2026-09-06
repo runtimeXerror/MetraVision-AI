@@ -119,11 +119,61 @@ export function scoreFor(result: ComplianceResult): number {
   return Math.round((passed / decisive.length) * 100);
 }
 
+/**
+ * What a check is *about*, in the words an officer uses.
+ *
+ * The title used to be the clause — `Rule 6(1)(e)` — so a report listed twenty
+ * findings whose headings were all rule numbers, and the reference beside each
+ * one repeated the same clause with a gazette notification bolted on. A reader
+ * had to know the rule book by heart to know what any row concerned.
+ *
+ * A check always names the declaration it examined, and that is the plain
+ * answer: `Maximum retail price`, `Net quantity`, `Month and year of
+ * manufacture`. The clause stays, as the reference, where a reader who wants to
+ * look the rule up will find it — but it is no longer doing the work of a title.
+ */
+const TITLE_BY_FIELD: Record<string, string> = {
+  mrp: 'Maximum retail price',
+  unit_sale_price: 'Unit sale price',
+  net_quantity: 'Net quantity',
+  manufacturing_date: 'Month and year of manufacture',
+  best_before: 'Best before or use by',
+  expiry_date: 'Expiry date',
+  manufacturer: 'Name and address of the manufacturer, packer or importer',
+  packer: 'Name and address of the packer',
+  importer: 'Name and address of the importer',
+  consumer_care: 'Consumer care details',
+  commodity_name: 'Name of the commodity',
+  country_of_origin: 'Country of origin',
+  batch_number: 'Batch or lot number',
+  dimensions: 'Dimensions of the commodity',
+  veg_nonveg_mark: 'Vegetarian or non-vegetarian mark',
+  gm_declaration: 'Genetically modified declaration',
+  ecommerce_declarations: 'Declarations required for online listings',
+  coo_filter: 'Country of origin for imported goods',
+};
+
+function titleFor(check: ComplianceResult['checks'][number]): string {
+  const clause = check.provenance.sourceClause ?? check.provenance.sourceRule;
+  if (check.field && TITLE_BY_FIELD[check.field]) return TITLE_BY_FIELD[check.field]!;
+
+  /*
+   * No declaration to name it by. These are the package-level rules — type
+   * height, legibility, the promotional-pack group — and the clause is the only
+   * name they have, so it stands as the title rather than being replaced by a
+   * worse guess.
+   */
+  return clause;
+}
+
 export function toLegacyChecks(result: ComplianceResult): ComplianceCheckAttrs[] {
   return result.checks.map((check) => ({
     code: `${check.ruleId}@${check.ruleVersion}`,
-    title: check.provenance.sourceClause ?? check.provenance.sourceRule,
-    ruleReference: `${check.provenance.sourceClause ?? check.provenance.sourceRule} — ${check.provenance.source.notification}`,
+    title: titleFor(check),
+    // The clause alone. The gazette notification that used to be appended is
+    // provenance for the rule set, not for this check, and it is recorded once
+    // on the scan record where it belongs.
+    ruleReference: check.provenance.sourceClause ?? check.provenance.sourceRule,
     result: RESULT_BY_STATUS[check.status],
     severity: check.severity,
     category: categoryFor(check),
