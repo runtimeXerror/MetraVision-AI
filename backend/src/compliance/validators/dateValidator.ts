@@ -32,25 +32,58 @@ const MONTH_NAMES: Record<string, number> = {
   dec: 12, december: 12,
 };
 
+/**
+ * `26` → `2026`.
+ *
+ * Every pattern below required four digits, so `13/08/26` — printed on a
+ * Haldiram pack under `MFG. DATE`, read cleanly, sitting in the field — parsed
+ * as nothing at all and came back as "could not be read as a month and year".
+ * A two-digit year is the commonest form on an Indian coding strip, where the
+ * space is a few millimetres of foil, so this was not an edge case; it was most
+ * of them.
+ *
+ * The century is fixed rather than inferred. Inferring it would mean choosing
+ * between 1926 and 2026 from the digits alone, and the only honest tie-breaker
+ * — nearness to the inspection date — is a guess dressed up as arithmetic. A
+ * packaged commodity on a shelf under these Rules, which commenced in 2011, was
+ * manufactured in this century. If that ever stops being true the assumption is
+ * named here rather than buried in a regex.
+ */
+const CENTURY = 2000;
+
+function fourDigitYear(raw: string): string {
+  return raw.length === 2 ? String(CENTURY + Number(raw)) : raw;
+}
+
 /** `YYYY-MM`, or `null` when the text carries no recognisable month and year. */
 export function parseMonthYear(text: string): string | null {
   const cleaned = text.trim().replace(/^(mfg|mfd|manufactured|packed|pkd|best before|use by|exp)\.?\s*[:.-]?\s*/i, '');
 
-  // MMM YYYY / MMM-YYYY — checked first, since a named month is unambiguous.
-  const named = /([A-Za-z]{3,9})\s*[\s/.-]\s*(\d{4})/.exec(cleaned);
+  // MMM YYYY / MMM-YY — checked first, since a named month is unambiguous.
+  const named = /([A-Za-z]{3,9})\s*[\s/.-]\s*(\d{4}|\d{2})\b/.exec(cleaned);
   if (named?.[1] && named[2]) {
     const month = MONTH_NAMES[named[1].toLowerCase()];
-    if (month) return `${named[2]}-${String(month).padStart(2, '0')}`;
+    if (month) return `${fourDigitYear(named[2])}-${String(month).padStart(2, '0')}`;
   }
 
-  // DD/MM/YYYY — three groups, so the middle one is the month.
-  const full = /\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/.exec(cleaned);
+  // DD/MM/YYYY and DD/MM/YY — three groups, so the middle one is the month.
+  const full = /\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})\b/.exec(cleaned);
   if (full?.[2] && full[3]) {
     const month = Number(full[2]);
-    if (month >= 1 && month <= 12) return `${full[3]}-${String(month).padStart(2, '0')}`;
+    if (month >= 1 && month <= 12) {
+      return `${fourDigitYear(full[3])}-${String(month).padStart(2, '0')}`;
+    }
   }
 
-  // MM/YYYY.
+  /*
+   * MM/YYYY. Four digits only, deliberately.
+   *
+   * `12/01` under a two-digit reading is both December 2001 and January 2012,
+   * and nothing on the label settles it. The three-group form above has already
+   * had its chance, so anything reaching here with two digits is a fragment —
+   * and a fragment read as a date would be printed on a served document as
+   * though the package had declared it.
+   */
   const short = /\b(\d{1,2})[/.-](\d{4})\b/.exec(cleaned);
   if (short?.[1] && short[2]) {
     const month = Number(short[1]);
