@@ -2,7 +2,8 @@ import mongoose, { type PipelineStage } from 'mongoose';
 
 import { Inspection, User } from '../models';
 import {
-  statusFilterField,
+  isPendingReviewExpr,
+  statusFilter,
   type InspectionStatus,
   type ProductCategory,
   type Severity,
@@ -49,7 +50,7 @@ export function scopeMatch(scope: AnalyticsScope): PipelineStage.Match['$match']
   // the two cannot drift: a dashboard narrowed to "violations" must cover the
   // filed ones, or every chart on the page quietly excludes closed enforcement.
   if (scope.status && scope.status !== 'ALL') {
-    match[statusFilterField(scope.status as InspectionStatus)] = scope.status;
+    Object.assign(match, statusFilter(scope.status as InspectionStatus));
   }
 
   if (scope.from || scope.to) {
@@ -113,7 +114,7 @@ export async function getSummary(scope: AnalyticsScope): Promise<DashboardSummar
         reviewRequired: {
           $sum: { $cond: [{ $eq: ['$complianceResult.status', 'REVIEW_REQUIRED'] }, 1, 0] },
         },
-        pendingReviews: { $sum: { $cond: [{ $eq: ['$status', 'REVIEW_REQUIRED'] }, 1, 0] } },
+        pendingReviews: { $sum: { $cond: [isPendingReviewExpr(), 1, 0] } },
         finalized: { $sum: { $cond: [{ $eq: ['$status', 'FINALIZED'] }, 1, 0] } },
         drafts: { $sum: { $cond: [{ $eq: ['$status', 'DRAFT'] }, 1, 0] } },
         assessed: { $sum: { $cond: [{ $ifNull: ['$complianceResult.status', false] }, 1, 0] } },

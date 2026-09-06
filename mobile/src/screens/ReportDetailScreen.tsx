@@ -205,10 +205,11 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
           <View style={styles.hairline} />
           <ReportRow label="Inspected on" value={formatDateTime(inspection.createdAt)} />
           <View style={styles.hairline} />
-          <ReportRow
-            label="Inspecting officer"
-            value={`${inspection.inspectorName} (${inspection.inspectorId})`}
-          />
+          {/* The name alone. The officer's service number is printed once, in
+              the signature block of the report, where an identifier on a legal
+              document belongs — repeating it in brackets after every mention
+              of the name said nothing the signature does not. */}
+          <ReportRow label="Inspecting officer" value={inspection.inspectorName} />
         </Card>
 
         {/* Commodity */}

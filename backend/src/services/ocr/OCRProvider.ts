@@ -40,6 +40,18 @@ export interface OCRRegion {
    */
   confidence?: number;
   boundingBox?: OCRBoundingBox;
+  /**
+   * The same line's box with the page turned the right way up.
+   *
+   * Present only when the photograph was sideways and the sidecar rotated it.
+   * Two consumers want opposite frames and both are right: the app draws
+   * evidence on the photograph as the inspector took it, so `boundingBox`
+   * stays in that frame — while every piece of layout reasoning here (which
+   * lines share a row, which column a value sits under) is meaningless unless
+   * the page is upright. Rather than have either guess, the sidecar reports
+   * both and each takes the one it needs.
+   */
+  layoutBox?: OCRBoundingBox;
   kind?: OCRRegionKind;
   /**
    * The printed size of this line, where the photograph carried a scale

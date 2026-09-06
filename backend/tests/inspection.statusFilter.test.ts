@@ -45,6 +45,14 @@ async function seedInspection(options: {
    * in that decision should show up.
    */
   verdict?: ComplianceStatus;
+  /**
+   * Marks every declaration as ruled on, the way finishing a review does.
+   *
+   * Filing and reviewing are separate acts, and the queue is filtered by the
+   * second one, so a test about the queue has to be able to vary them
+   * independently.
+   */
+  reviewed?: boolean;
 }) {
   const provider = mockProviderFor(options.scenario);
   const result = await provider.analyse({
@@ -72,6 +80,7 @@ async function seedInspection(options: {
       bbox: field.bbox,
       sourceImageId: field.sourceImageId,
       required: field.required,
+      ...(options.reviewed ? { reviewAction: 'ACCEPTED' as const } : {}),
     })),
     complianceResult: compliance,
     // Exactly what `finalizeInspection` does: the workflow column is
@@ -168,31 +177,43 @@ describe('GET /api/inspections?status=', () => {
   });
 
   /**
-   * `REVIEW_REQUIRED` is deliberately *not* treated as a verdict here.
+   * The review queue is the work left, not the paperwork still open.
    *
-   * It is the only one of the three shared values that names a queue rather
-   * than a finding — the work still sitting on the officer's desk — and the
-   * "Pending Reviews" tile counts it the same way. A filed record has been
-   * reviewed, whatever the engine's own verdict on it was, so it does not
-   * belong in that list. See `statusFilterField`.
+   * This asserted that filing a record took it out of the queue, on the
+   * assumption that an inspector who files has reviewed. The app does not
+   * enforce that and should not: an inspector can finalize with declarations
+   * still unruled, and when they did, the record vanished from the queue with
+   * the questions on it unanswered and no way back to them.
+   *
+   * So the queue is filtered by whether any declaration still lacks a ruling.
+   * Filing does not empty it; answering the last declaration does.
    */
-  it('excludes a filed record from the review queue', async () => {
+  it('keeps a filed record in the review queue while declarations are unanswered', async () => {
     const open = await seedInspection({
       owner: inspector,
       scenario: 'low_confidence',
       business: 'Awaiting Review Store',
       verdict: 'REVIEW_REQUIRED',
     });
-    const filed = await seedInspection({
+    const filedUnreviewed = await seedInspection({
+      owner: inspector,
+      scenario: 'low_confidence',
+      business: 'Filed Without Review Store',
+      finalized: true,
+      verdict: 'REVIEW_REQUIRED',
+    });
+    const filedReviewed = await seedInspection({
       owner: inspector,
       scenario: 'low_confidence',
       business: 'Reviewed And Filed Store',
       finalized: true,
+      reviewed: true,
       verdict: 'REVIEW_REQUIRED',
     });
 
     expect(open.status).toBe('REVIEW_REQUIRED');
-    expect(filed.complianceResult?.status).toBe('REVIEW_REQUIRED');
+    expect(filedUnreviewed.status).toBe('FINALIZED');
+    expect(filedReviewed.status).toBe('FINALIZED');
 
     const response = await request(app)
       .get('/api/inspections')
@@ -200,14 +221,21 @@ describe('GET /api/inspections?status=', () => {
       .set('Authorization', inspector.auth)
       .expect(200);
 
-    expect(references(response.body)).toEqual([open.inspectionId]);
+    // The one never reviewed is still owed, filed or not. The one whose
+    // declarations were all answered is done.
+    expect(references(response.body).sort()).toEqual(
+      [open.inspectionId, filedUnreviewed.inspectionId].sort(),
+    );
+    expect(references(response.body)).not.toContain(filedReviewed.inspectionId);
 
     const stats = await request(app)
       .get('/api/inspections/stats')
       .set('Authorization', inspector.auth)
       .expect(200);
 
-    expect(stats.body.data.pendingReviews).toBe(1);
+    // The tile and the list behind it agree, which is the property that made
+    // this filter worth a test file of its own.
+    expect(stats.body.data.pendingReviews).toBe(2);
   });
 
   it('still filters on the workflow column for a workflow-only status', async () => {

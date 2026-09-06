@@ -169,6 +169,10 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
         amendment?.state ?? details.state ?? null,
         amendment?.state ? (details.state ?? null) : null,
       )}</td></tr>
+      <!-- Not run through amendedCell: the amendment form covers the address,
+           the district and the state, and a PIN nobody can amend must not be
+           drawn as though it had been. -->
+      <tr><td>PIN code</td><td>${orDash(details.pincode ?? null)}</td></tr>
       <tr><td>GPS fix</td><td>${orDash(
         details.latitude !== undefined && details.longitude !== undefined
           ? `${details.latitude.toFixed(5)}, ${details.longitude.toFixed(5)}${
@@ -177,9 +181,7 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
           : null,
       )}</td></tr>
       <tr><td>Inspected on</td><td>${esc(formatDateTime(inspection.createdAt))}</td></tr>
-      <tr><td>Inspecting officer</td><td>${esc(inspection.inspectorName)} (${esc(
-        inspection.inspectorId,
-      )})</td></tr>
+      <tr><td>Inspecting officer</td><td>${esc(inspection.inspectorName)}</td></tr>
     </table>`);
 
   /* Commodity */

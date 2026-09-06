@@ -138,27 +138,25 @@ export function queryRegisterPool(
 /**
  * One record against one status chip, matching the server value for value.
  *
- * The API's `statusFilterField` resolves two of the three shared values to the
- * verdict and one to the workflow position — "compliant" and "violation" are
- * findings that survive filing, "review required" is a queue that does not.
- * Reproducing that here is what stops the same chip returning different records
- * depending on whether the officer had signal.
+ * Two of the three shared values resolve to the verdict and one to the work
+ * outstanding: "compliant" and "violation" are findings that survive filing,
+ * "review required" is a queue that empties as declarations are answered.
+ * Reproducing the server's rule here is what stops the same chip returning
+ * different records depending on whether the officer had signal.
  */
 function matchesStatus(record: InspectionSummary, status: ComplianceStatus): boolean {
   if (status !== 'review_required') return record.complianceStatus === status;
 
-  /**
-   * The server matches `inspection.status === 'REVIEW_REQUIRED'`, which means
-   * *the last evaluation said review required* and *the record has not been
-   * finalized*. The summary cannot say that in one field: its own `status`
-   * collapses all three verdict values into `pending_review`, so on its own it
-   * would also match a compliant record awaiting filing.
+  /*
+   * The server's condition exactly: the analysis asked for review, and at least
+   * one declaration still has no ruling on it.
    *
-   * Both halves together are the exact condition. `pending_review` rules out
-   * draft, analysing and finalized; the verdict supplies which of the three the
-   * server's column would have been holding.
+   * This used to test `record.status === 'pending_review'` — the workflow
+   * position — which meant a record dropped out of the queue the moment it was
+   * filed, whether or not anyone had answered the declarations it was filed
+   * with. Filing is not reviewing, and the queue now says so.
    */
-  return record.complianceStatus === 'review_required' && record.status === 'pending_review';
+  return record.complianceStatus === 'review_required' && record.pendingDeclarations > 0;
 }
 
 /**
@@ -181,9 +179,9 @@ export function statsFromPool(pool: InspectionSummary[]): {
     totalInspections: pool.length,
     compliant: pool.filter((record) => record.complianceStatus === 'compliant').length,
     violations: pool.filter((record) => record.complianceStatus === 'violation').length,
-    // The same two-field condition `matchesStatus` uses, so this count and the
-    // list behind it can never disagree. `status === 'pending_review'` alone
-    // would sweep in every compliant record still awaiting filing.
+    // The same condition `matchesStatus` uses, so this count and the list
+    // behind it can never disagree — including the part that keeps a filed
+    // inspection in the queue while declarations on it are still unanswered.
     pendingReviews: pool.filter((record) => matchesStatus(record, 'review_required')).length,
     // Not derivable from a summary — it carries no score — and a zero here is
     // rendered as "—" rather than as an average of nothing.

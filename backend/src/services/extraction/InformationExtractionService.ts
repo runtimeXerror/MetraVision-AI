@@ -1,11 +1,11 @@
 import type { EvidenceReference } from '../../compliance/types/Evidence';
 import type { AggregateOCRResult, OCRRegion } from '../ocr';
 
-import { firstAmount, normaliseLine, normaliseText, stripLabel } from './normalise';
+import { firstAmount, normaliseLine, normaliseText, repairDigits, stripLabel } from './normalise';
 import type { ProductCategory } from '../../types/domain';
 
 import { categoryFrom, commodityNounIn, type CommodityMatch } from './commodity';
-import { readCodingStrip } from './codingStrip';
+import { readCodingStrip, readLabelColumn } from './codingStrip';
 import {
   ALL_LABELS,
   FIELD_SPECS,
@@ -354,8 +354,64 @@ function couldBeAName(line: Line): boolean {
 
 type Box = [number, number, number, number];
 
+/**
+ * Every FSSAI licence on the package, not the first one found.
+ *
+ * A packet routinely carries three: the brand owner's, the manufacturing unit's
+ * and the packer-or-distributor's, each on its own line under its own company
+ * name — a Haldiram moong dal pack lists 10013051000541, 10012064000112 and
+ * 12723999000374 one under the other. The field extractor claims a line once
+ * and settles a field once, so it recorded whichever it reached first and the
+ * other two were left unclaimed.
+ *
+ * That is not a cosmetic loss. Which licence a package declares is how an
+ * inspector finds out who is actually answerable for it, and a report naming
+ * one of three cannot support that. So they are gathered in the order they are
+ * printed, and every line that carried one is cited as evidence.
+ *
+ * Fourteen digits exactly, because that is what an FSSAI licence number is: a
+ * shorter or longer run beside the word FSSAI is a misread, not a licence.
+ */
+const FSSAI_LABEL = /\bfssai\b/i;
+const FSSAI_NUMBER = /\b\d{14}\b/g;
+
+function allFssaiLicences(lines: Line[]): { numbers: string[]; lines: Line[] } {
+  const numbers: string[] = [];
+  const cited: Line[] = [];
+
+  for (const line of lines) {
+    if (!FSSAI_LABEL.test(line.text)) continue;
+
+    const found = repairDigits(line.text).text.match(FSSAI_NUMBER);
+    if (!found) continue;
+
+    let citedThisLine = false;
+    for (const number of found) {
+      if (numbers.includes(number)) continue;
+      numbers.push(number);
+      if (!citedThisLine) {
+        cited.push(line);
+        citedThisLine = true;
+      }
+    }
+  }
+
+  return { numbers, lines: cited };
+}
+
+/**
+ * The box to reason about position with — upright, where the two differ.
+ *
+ * Everything that calls this is asking a layout question: does this line share
+ * a row with that one, which column is it in, which way does it run. On a
+ * sideways photograph the stored box answers all of those backwards, and the
+ * coding strip — which pairs the nth header with the nth value down the page —
+ * silently paired a batch number with a price. `layoutBox` is the same line
+ * with the page turned the right way up, and it is set only when the sidecar
+ * actually had to turn one.
+ */
 function boxOf(line: Line): Box | undefined {
-  return line.region?.boundingBox;
+  return line.region?.layoutBox ?? line.region?.boundingBox;
 }
 
 /**
@@ -586,13 +642,36 @@ export class InformationExtractionService {
      * Nothing the pattern pass can find later beats it, so it goes in first and
      * the lines it used are taken out of circulation.
      */
-    const stripReadings = readCodingStrip(
-      lines.map((line) => ({ index: line.index, text: line.text, raw: line.raw, box: boxOf(line) })),
-    );
+    const stripLines = lines.map((line) => ({
+      index: line.index,
+      text: line.text,
+      raw: line.raw,
+      box: boxOf(line),
+    }));
+
+    /*
+     * Two layouts, two readers, and the coder's strip wins where both fire.
+     *
+     * A coding strip is sprayed on at packing time and is the more specific
+     * claim — where a pack carries both, the strip holds the batch and the
+     * dates for *this* run, and the printed block beside it may carry a
+     * generic or older declaration. Concatenating with the strip first is
+     * enough to express that, because the loop below claims a field once and
+     * ignores later readings of it.
+     */
+    const stripReadings = [
+      ...readCodingStrip(stripLines),
+      ...readLabelColumn(stripLines),
+    ];
 
     const fromStrip = new Set<string>();
 
     for (const reading of stripReadings) {
+      // The strip's reading of a field stands; the printed block does not
+      // overwrite it. Without this the second reader silently replaced the
+      // first, which is the opposite of the precedence intended above.
+      if (fromStrip.has(reading.field)) continue;
+
       const used = reading.lines
         .map((entry) => lines[entry.index])
         .filter((line): line is Line => line !== undefined);
@@ -654,6 +733,38 @@ export class InformationExtractionService {
       informational,
       warnings,
     );
+
+    /*
+     * The licences, gathered after everything else has run.
+     *
+     * Last on purpose: the ordinary pass has already recorded one of them, and
+     * this replaces that record rather than competing with it, so a package
+     * carrying a single licence is completely unaffected.
+     */
+    const licences = allFssaiLicences(lines);
+    if (licences.numbers.length > 1) {
+      const existing = informational.fssai_licence;
+      informational.fssai_licence = {
+        field: 'fssai_licence',
+        label: 'FSSAI licence numbers',
+        value: licences.numbers.join(', '),
+        status: 'FOUND',
+        confidence: confidenceOf(licences.lines),
+        evidence: licences.lines.map((line) =>
+          evidenceFor(line, spaceByImage.get(line.region?.imageId ?? '')),
+        ),
+        method: existing?.method ?? 'PATTERN_MATCH',
+        matchedText: licences.lines.map((line) => line.raw).join(' | '),
+      };
+
+      for (const line of licences.lines) line.claimedBy = 'fssai_licence';
+
+      warnings.push(
+        `The package declares ${licences.numbers.length} FSSAI licence numbers — ` +
+          'a brand owner, a manufacturing unit and a packer each hold their own. ' +
+          'All of them are recorded; check which one answers for the article inspected.',
+      );
+    }
 
     const contextSignals = this.contextSignalsFrom(fields, informational);
 

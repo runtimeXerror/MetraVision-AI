@@ -71,11 +71,24 @@ export type ComplianceStatus = (typeof COMPLIANCE_STATUSES)[number];
  *       "Show me the violations" means all of them. Whether the paperwork is
  *       closed does not change what was found.
  *
- *   REVIEW_REQUIRED → the workflow position.
- *       "Review required" is a queue, not a finding: it is the work still
- *       sitting on the officer's desk. A finalized record has been reviewed —
- *       the inspector filed it — so it does not belong in that queue, and the
- *       "Pending Reviews" tile counts it the same way.
+ *   REVIEW_REQUIRED → the work that is actually left.
+ *       "Review required" is a queue, not a finding: it is what still sits on
+ *       the officer's desk.
+ *
+ *       This read the workflow column, on the assumption that filing a record
+ *       means having reviewed it. That assumption is false, and the app is what
+ *       makes it false: an inspector can finalize an inspection with
+ *       declarations still unruled — there are good reasons to, in a market,
+ *       with a queue behind you — and the moment they did, the record left the
+ *       queue and there was no way back to the declarations it had never
+ *       answered. The work was not done; it was only unlisted.
+ *
+ *       So the queue asks the question it means: does this inspection still
+ *       have a declaration nobody has ruled on? `extractedFields.reviewAction`
+ *       is set when an inspector accepts, corrects or marks one unavailable, so
+ *       its absence is exactly "not yet looked at" — and a record drops out of
+ *       the queue when the last declaration is answered, which is the only
+ *       thing that should take it out.
  *
  * DRAFT, PROCESSING and FINALIZED are workflow-only and were never ambiguous.
  * ────────────────────────────────────────────────────────────────────────────
@@ -85,8 +98,53 @@ const VERDICT_FILTER_FIELDS = {
   VIOLATION_DETECTED: 'complianceResult.status',
 } as const;
 
-export function statusFilterField(status: InspectionStatus): 'status' | 'complianceResult.status' {
-  return VERDICT_FILTER_FIELDS[status as keyof typeof VERDICT_FILTER_FIELDS] ?? 'status';
+/**
+ * The database filter for one status, as a fragment to merge into a query.
+ *
+ * Returns a fragment rather than a field name because the review queue is not
+ * a single-column test any more — it is a verdict and an outstanding
+ * declaration together, and a helper that can only name one column cannot say
+ * that.
+ */
+/**
+ * The same queue, as an aggregation expression.
+ *
+ * `statusFilter` answers it for `find`; the dashboard counts it with `$group`,
+ * and the two must agree or the tile disagrees with the list it opens. Written
+ * once here so they cannot drift apart again — which is the exact failure this
+ * module's header records for the verdict filters.
+ */
+export function isPendingReviewExpr(): Record<string, unknown> {
+  return {
+    $and: [
+      { $eq: ['$complianceResult.status', 'REVIEW_REQUIRED'] },
+      {
+        $gt: [
+          {
+            $size: {
+              $filter: {
+                input: { $ifNull: ['$extractedFields', []] },
+                cond: { $not: [{ $ifNull: ['$$this.reviewAction', false] }] },
+              },
+            },
+          },
+          0,
+        ],
+      },
+    ],
+  };
+}
+
+export function statusFilter(status: InspectionStatus): Record<string, unknown> {
+  if (status === 'REVIEW_REQUIRED') {
+    return {
+      'complianceResult.status': 'REVIEW_REQUIRED',
+      extractedFields: { $elemMatch: { reviewAction: { $exists: false } } },
+    };
+  }
+
+  const field = VERDICT_FILTER_FIELDS[status as keyof typeof VERDICT_FILTER_FIELDS] ?? 'status';
+  return { [field]: status };
 }
 
 /**

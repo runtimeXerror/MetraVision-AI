@@ -238,9 +238,6 @@ function OverviewTab({ inspection }: { inspection: Inspection }) {
               <Avatar name={inspection.inspector.name} size={42} />
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-ink">{inspection.inspector.name}</p>
-                <p className="font-mono text-2xs text-ink-muted">
-                  {inspection.inspector.inspectorId}
-                </p>
                 <Badge tone="info" className="mt-1.5">
                   {humanise(inspection.inspector.role)}
                 </Badge>

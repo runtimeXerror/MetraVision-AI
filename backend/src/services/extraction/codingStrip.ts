@@ -74,7 +74,7 @@ export interface StripReading {
  * loosely here costs nothing, because a header only ever selects which *shape*
  * to look for next — a wrong guess yields no value rather than a wrong one.
  */
-type Shape = 'amount' | 'date' | 'code' | 'unitPrice';
+type Shape = 'amount' | 'date' | 'code' | 'unitPrice' | 'quantity';
 
 interface HeaderSpec {
   field: string;
@@ -142,7 +142,23 @@ function cleanAmount(text: string): string {
   return text.replace(/([.,])[\s'`:.]{0,3}(\d{2})\b/, '.$2').replace(/\s+/g, '');
 }
 const DATE = /\b\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*\d{2,4}\b|\b\d{1,2}\s*[/.\-]\s*\d{4}\b/;
-const CODE = /\b[A-Z]{1,3}\d{4,}[A-Z0-9]*\b|\b[A-Z0-9]{2,}[-/][A-Z0-9]{2,}\b/;
+/**
+ * A batch or lot code.
+ *
+ * The letter run was capped at three, which is one short of the coders that
+ * print a plant prefix: `DBFH13I9118:05` off a Haldiram pack has four, so it
+ * matched nothing and the batch header went looking further down the column —
+ * where it took `12/01/27` and recorded the use-by date as the lot number,
+ * and pushed every declaration below it onto the wrong value.
+ *
+ * The third arm is for the lot numbers with no letters in them at all —
+ * `861363777`. Both original arms required either a letter prefix or an
+ * embedded slash, so an all-numeric batch code, which is a very ordinary thing
+ * for a packing line to print, was not a code by this module's reckoning. Five
+ * digits is the floor: it clears a net quantity, a price and a two-part date,
+ * and `hasShape` bars a date from being read as a code regardless.
+ */
+const CODE = /\b[A-Z]{1,5}\d{3,}[A-Z0-9]*\b|\b[A-Z0-9]{2,}[-/][A-Z0-9]{2,}\b|\b\d{5,}\b/;
 
 /**
  * `0.50/g`, and the state it arrives in.
@@ -152,7 +168,26 @@ const CODE = /\b[A-Z]{1,3}\d{4,}[A-Z0-9]*\b|\b[A-Z0-9]{2,}[-/][A-Z0-9]{2,}\b/;
  * `/mI`. It is also the character that makes this a unit sale price rather than
  * a price, so it cannot simply be dropped.
  */
-const UNIT_PRICE = /(\d+(?:\.\d+)?)\s*\/\s*([gq9]|ml|mi|m1|kg|k9|l|ltr|n)\b/i;
+/**
+ * `Rs. 0.30/g`, and what a camera makes of it.
+ *
+ * The separator was a literal slash. On a Haldiram pack photographed at an
+ * angle it came back as a hyphen, and on a second read as nothing at all, so
+ * `0.30/g` arrived as `Rs.0.30-9` and `Rs.0.309` — a unit sale price printed
+ * exactly as Rule 6 requires, thrown away over one punctuation mark. The class
+ * is widened to the marks a thin diagonal stroke is actually mistaken for, and
+ * made optional. The unit side already tolerated `9` for `g`; the separator now
+ * does the same work.
+ */
+const UNIT_PRICE = /(\d+(?:\.\d+)?)\s*[/\-|\\]?\s*([gq9]|ml|mi|m1|kg|k9|ltr|l|n)\b/i;
+
+/**
+ * A net quantity: a number with its unit attached.
+ *
+ * Strict on purpose — the unit is the whole of what separates a quantity from a
+ * batch number or a price, so a bare number never satisfies this.
+ */
+const QUANTITY = /\b(\d+(?:[.,]\d+)?)\s*(g|gm|gms|kg|mg|ml|ltr|litres?|l|nos?|pcs?|u|n)\b/i;
 
 const UNIT_REPAIR: Record<string, string> = {
   g: 'g', q: 'g', '9': 'g',
@@ -170,9 +205,18 @@ function hasShape(text: string, shape: Shape): boolean {
     case 'date':
       return DATE.test(text);
     case 'code':
-      return CODE.test(text);
+      // The second arm of CODE — two runs joined by a slash — describes a date
+      // as exactly as it describes a lot number. A batch header must not be
+      // able to take `12/01/27`; where a package really does print a date as
+      // its batch code, the date fields will carry it and the batch will be
+      // asked of the inspector, which is the safer of the two mistakes.
+      return CODE.test(text) && !DATE.test(text);
     case 'unitPrice':
       return UNIT_PRICE.test(text);
+    case 'quantity':
+      // A date is digits with separators too, and `12/01/27` must never be
+      // read as a quantity of 27 litres.
+      return QUANTITY.test(text) && !DATE.test(text);
   }
 }
 
@@ -184,11 +228,36 @@ function valueOfShape(text: string, shape: Shape): string | null {
     return unit ? `${match[1]}/${unit}` : null;
   }
 
+  if (shape === 'quantity') {
+    const match = QUANTITY.exec(text);
+    if (!match?.[1] || !match[2]) return null;
+    const unit = match[2].toLowerCase();
+    return `${match[1]} ${UNIT_REPAIR[unit] ?? unit}`;
+  }
+
   const pattern = shape === 'amount' ? AMOUNT : shape === 'date' ? DATE : CODE;
   const match = pattern.exec(text);
   if (!match) return null;
 
   if (shape === 'amount') return cleanAmount(match[0].trim());
+
+  if (shape === 'code') {
+    /*
+     * The whole token, not the part the pattern proved.
+     *
+     * `DBFH13I9118:05` came back as `DBFH1319!18:05` and CODE matched only as
+     * far as the stray `!`, recording the batch as `DBFH1319`. A truncated lot
+     * number is worse than none: it looks like a reading, and it will not match
+     * the packing record it exists to be checked against. The pattern's job is
+     * to decide *that* this is a code; the value is the run of non-space
+     * characters it sits in.
+     */
+    const at = text.indexOf(match[0]);
+    const before = text.slice(0, at).search(/\S+$/);
+    const start = before === -1 ? at : before;
+    const rest = text.slice(at + match[0].length).match(/^\S+/);
+    return text.slice(start, at + match[0].length + (rest?.[0].length ?? 0)).trim();
+  }
 
   if (shape === 'date') {
     // `26/06-2026`. A coder prints one separator and the recogniser returns
@@ -246,6 +315,219 @@ function heightOf(line: StripLine): number {
  * header alone is a word on a packet, and treating it as a strip would let this
  * claim values the ordinary matcher reads better.
  */
+/* ── THE OTHER LAYOUT: A COLUMN OF LABELS ─────────────────────────────────── */
+
+/**
+ * The declaration block printed as two columns — labels down one side, values
+ * down the other:
+ *
+ *     NET QUANTITY :        200g
+ *     MFG. DATE    :        13/08/26
+ *     USE BY       :        12/01/27
+ *     BATCH NO.    :        DBFH13I9118:05
+ *     MRP.(INCL. OF
+ *      ALL TAXES); USP :    Rs.60.00   Rs.0.30/g
+ *
+ * This is not the coding strip above and it needs its own reader. A coding
+ * strip is one row of short pre-printed headers with the coder's spray beneath
+ * them; this is a full-word declaration block, and every assumption the strip
+ * reader makes about it is wrong — the headers are stacked, not side by side;
+ * they are sentences (`MRP.(INCL. OF`), not tokens; and `HEADER_MAX_LENGTH`
+ * rejects most of them outright.
+ *
+ * The pairing principle is the same one, and for the same reason. Matching a
+ * label to the value on its row fails here: photographed at an angle, the value
+ * column drifts down against the label column, and on the Haldiram pack the
+ * drift reached 61 pixels against a 45-pixel line — more than a full row out by
+ * the bottom of the block. Reading both columns in order and pairing the nth
+ * with the nth survives that completely, because it never measures the gap at
+ * all. Shape is what keeps it honest: a header takes the next value that looks
+ * like what it is asking for, so the lines between them that are not values —
+ * `KEEP YOUR`, `CITY CLEAN`, a stray barcode number — are skipped rather than
+ * consumed.
+ *
+ * ── THE SAFETY PROPERTY ────────────────────────────────────────────────────
+ *
+ * Same as the strip reader's, arrived at differently. There the guarantee is
+ * that a header pattern is anchored, so a line carrying its own value cannot be
+ * a header. Here the labels are too varied to anchor — `MRP.(INCL. OF` has to
+ * match — so the guarantee is `NO_DIGIT`: a candidate header must contain no
+ * digit anywhere. `MRP <rupee>315.00` therefore cannot be a header, which is
+ * the exact failure the strip reader was once burned by, and this reader must
+ * never reach a block the ordinary label-and-value matcher already reads.
+ */
+
+/** A header in this layout announces a value; it never carries one. */
+const NO_DIGIT = /^[^0-9]+$/;
+
+/** Long enough for `MRP.(INCL. OF`, short enough to exclude a sentence. */
+const COLUMN_LABEL_MAX_LENGTH = 26;
+
+/** Fewer than this is a coincidence, not a column. */
+const COLUMN_MIN_HEADERS = 3;
+
+const COLUMN_HEADERS: HeaderSpec[] = [
+  { field: 'net_quantity', shape: 'quantity', pattern: /\bnet\s*(?:qty|quan\S{0,3}ty|wt|weight|vol|volume|content)s?\b/i },
+  // `(?!\s*by)` is the same guard the pattern list carries, for the same
+  // packet: `MPKG. Mfd. By: Montage` names who made the thing. Without it that
+  // line is a manufacturing-date header, and being printed higher up the panel
+  // it is found first — so it took the field, and the real `MFG. DATE` two
+  // inches below was discarded as a duplicate.
+  { field: 'manufacturing_date', shape: 'date', pattern: /\b(?:mfg|mfd|manufactur\w*|pkd|packed|packing)\b(?![^a-z0-9]*by\b)[^a-z]*(?:date)?/i },
+  { field: 'best_before', shape: 'date', pattern: /\b(?:use\s*by|use\s*before|best\s*before|expiry|exp)\b/i },
+  { field: 'batch_number', shape: 'code', pattern: /\b(?:batch|lot)\s*(?:no|number|code)?\b/i },
+  // `USP` before `MRP`: on this pack both share a line — `ALL TAXES); USP` —
+  // and the unit price is the one that line actually announces.
+  { field: 'unit_sale_price', shape: 'unitPrice', pattern: /\bu\s?s\s?p\b|\bunit\s*(?:sale|retail)?\s*price\b/i },
+  { field: 'mrp', shape: 'amount', pattern: /\bm\.?\s?r\.?\s?p\b|\bmaximum\s+retail\s+price\b/i },
+];
+
+interface ColumnEntry {
+  line: StripLine;
+  spec: HeaderSpec;
+  top: number;
+  centreX: number;
+}
+
+function leftOf(line: StripLine): number {
+  return line.box![0];
+}
+
+function rightOf(line: StripLine): number {
+  return line.box![2];
+}
+
+function centreXOf(line: StripLine): number {
+  return (line.box![0] + line.box![2]) / 2;
+}
+
+function spread(values: number[]): number {
+  return Math.max(...values) - Math.min(...values);
+}
+
+/**
+ * Reads a two-column declaration block.
+ *
+ * Returns nothing at all unless the geometry really is a column of labels —
+ * three or more, aligned on one edge, none carrying a digit. Every other shape
+ * of label is left to the ordinary matcher.
+ */
+export function readLabelColumn(lines: StripLine[]): StripReading[] {
+  const located = lines.filter((line) => line.box && line.text.trim() !== '');
+  if (located.length < COLUMN_MIN_HEADERS + 1) return [];
+
+  let headers: ColumnEntry[] = [];
+  for (const line of located) {
+    const text = line.text.trim();
+    if (text.length > COLUMN_LABEL_MAX_LENGTH) continue;
+    if (!NO_DIGIT.test(text)) continue;
+
+    const spec = COLUMN_HEADERS.find((candidate) => candidate.pattern.test(text));
+    if (!spec) continue;
+    if (headers.some((entry) => entry.spec.field === spec.field)) continue;
+
+    headers.push({ line, spec, top: line.box![1], centreX: centreXOf(line) });
+  }
+
+  if (headers.length < COLUMN_MIN_HEADERS) return [];
+
+  /*
+   * Are they a column?
+   *
+   * Aligned on one edge or the other — left where the block is set ragged
+   * right, right where the labels are set to a colon, which is how this pack
+   * prints them. Either counts; a set of labels scattered across the panel does
+   * not, and that is what stops this reader firing on a label whose
+   * declarations are simply written in prose in different places.
+   */
+  const lineHeight = Math.max(...headers.map((entry) => heightOf(entry.line)), 12);
+  const tolerance = lineHeight * 2;
+
+  /*
+   * The column is the largest set of labels that line up — not all of them.
+   *
+   * Testing every match at once let one label anywhere else on the package veto
+   * the whole block: `MPKG. Mfd. By: Montage`, printed across the panel, put
+   * 493 pixels of spread into a column whose labels agree to within 25, and the
+   * reader returned nothing at all for a pack whose declarations were sitting
+   * there in a neat list. A stray label is now simply not in the column.
+   */
+  let column = headers;
+  for (const anchor of headers) {
+    const together = headers.filter(
+      (entry) =>
+        Math.abs(leftOf(entry.line) - leftOf(anchor.line)) <= tolerance ||
+        Math.abs(rightOf(entry.line) - rightOf(anchor.line)) <= tolerance,
+    );
+    if (together.length > column.length || column === headers) column = together;
+  }
+
+  if (column.length < COLUMN_MIN_HEADERS) return [];
+  headers = column;
+
+  headers.sort((a, b) => a.top - b.top);
+
+  /*
+   * The values sit beside the labels, within the block's own vertical extent —
+   * one line height of slack at each end, because the first or last value can
+   * sit slightly proud of its label.
+   */
+  const top = headers[0]!.top - lineHeight;
+  const bottom = Math.max(...headers.map((entry) => entry.line.box![3])) + lineHeight;
+  const claimed = new Set(headers.map((entry) => entry.line));
+
+  const beside = located.filter(
+    (line) => !claimed.has(line) && line.box![1] >= top && line.box![1] <= bottom,
+  );
+
+  /*
+   * Which side? Counted rather than assumed.
+   *
+   * A label block reads label-then-value, so the values are normally to the
+   * right. They are to the *left* here, because this coding block is printed
+   * upside down relative to the rest of the pack — the sidecar turned the
+   * photograph upright by the majority of its text, and this block was in the
+   * minority. Rather than bet on either, both sides are scored by how many
+   * lines carry a shape some header is asking for, and the better side wins.
+   */
+  const wanted = new Set(headers.map((entry) => entry.spec.shape));
+  const labelCentre =
+    headers.reduce((sum, entry) => sum + entry.centreX, 0) / headers.length;
+
+  const score = (candidates: StripLine[]): number =>
+    candidates.filter((line) =>
+      [...wanted].some((shape) => hasShape(line.text, shape)),
+    ).length;
+
+  const left = beside.filter((line) => centreXOf(line) < labelCentre);
+  const right = beside.filter((line) => centreXOf(line) > labelCentre);
+  const values = score(right) >= score(left) ? right : left;
+
+  if (values.length === 0) return [];
+
+  values.sort((a, b) => a.box![1] - b.box![1]);
+
+  /* Nth label, nth value of the shape it asks for. */
+  const readings: StripReading[] = [];
+  let cursor = 0;
+
+  for (const header of headers) {
+    for (let index = cursor; index < values.length; index += 1) {
+      const candidate = values[index]!;
+      if (!hasShape(candidate.text, header.spec.shape)) continue;
+
+      const value = valueOfShape(candidate.text, header.spec.shape);
+      if (value === null) continue;
+
+      readings.push({ field: header.spec.field, value, lines: [header.line, candidate] });
+      cursor = index + 1;
+      break;
+    }
+  }
+
+  return readings;
+}
+
 export function readCodingStrip(lines: StripLine[]): StripReading[] {
   const located = lines.filter((line) => line.box && line.text.trim() !== '');
   if (located.length === 0) return [];

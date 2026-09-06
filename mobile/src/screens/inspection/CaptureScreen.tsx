@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { confirm } from '../../components/Dialog';
+import { CropImage, type CropResult } from '../../components/CropImage';
 import { ZoomableImage } from '../../components/ZoomableImage';
 
 import { ImageThumb } from '../../components/domain';
@@ -48,10 +49,12 @@ export function CaptureScreen() {
   const activeSide = useImageStore((state) => state.activeSide);
   const setActiveSide = useImageStore((state) => state.setActiveSide);
   const removeImage = useImageStore((state) => state.remove);
+  const replaceImage = useImageStore((state) => state.replace);
   const assessQuality = useImageStore((state) => state.assessQuality);
 
   const { capture, retakeFrom, busy } = useImageCapture();
   const [preview, setPreview] = useState<ProductImage | null>(null);
+  const [cropping, setCropping] = useState<ProductImage | null>(null);
 
   const countFor = (side: ImageSide) => images.filter((image) => image.side === side).length;
   const guidance = FACE_GUIDANCE[activeSide];
@@ -340,6 +343,21 @@ export function CaptureScreen() {
               </Txt>
 
               <Row gap={spacing.md}>
+                {/* Trimming a frame that caught half a shelf is the difference
+                    between a label at full resolution and one at a fifth of it.
+                    Offered here rather than at capture, because a crop imposed
+                    before the inspector has seen the photograph can remove a
+                    declaration with nothing left to show it was ever there. */}
+                <Button
+                  title="Crop"
+                  icon="crop-outline"
+                  variant="secondary"
+                  style={{ flex: 1 }}
+                  onPress={() => {
+                    setCropping(preview);
+                    setPreview(null);
+                  }}
+                />
                 <Button
                   title="Replace"
                   icon="swap-horizontal-outline"
@@ -365,6 +383,27 @@ export function CaptureScreen() {
           ) : null}
         </View>
       </Modal>
+
+      <CropImage
+        visible={cropping !== null}
+        uri={cropping?.uri ?? null}
+        onCancel={() => setCropping(null)}
+        onCropped={(result: CropResult) => {
+          const target = cropping;
+          setCropping(null);
+          if (!target) return;
+
+          // The store entry points at the trimmed file; the original stays on
+          // disk, so a crop that took too much is not a lost photograph.
+          replaceImage(target.id, {
+            uri: result.uri,
+            side: target.side,
+            source: target.source,
+            width: result.width,
+            height: result.height,
+          });
+        }}
+      />
     </Screen>
   );
 }

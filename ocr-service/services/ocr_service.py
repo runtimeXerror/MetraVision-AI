@@ -550,6 +550,104 @@ def _predict(engine: Engine, image: PreparedImage) -> list[dict[str, Any]]:
     return lines
 
 
+# A line of upright text is wider than it is tall. When almost every line on
+# the page is the other way round, the page is on its side.
+#
+# Measured on a sideways photograph of a Haldiram pack and on the same image
+# corrected: 0.92 of lines taller than wide against 0.00. The separation is
+# the whole width of the range, so the threshold is not delicately placed.
+SIDEWAYS_RATIO = 1.2
+SIDEWAYS_SHARE = 0.6
+SIDEWAYS_MIN_LINES = 4
+
+
+def _sideways(lines: list[dict[str, Any]]) -> bool:
+    """True when the geometry says the whole label is rotated a quarter turn."""
+    boxes = [line.get("boundingBox") for line in lines]
+    boxes = [b for b in boxes if b and b.get("width") and b.get("height")]
+    if len(boxes) < SIDEWAYS_MIN_LINES:
+        # Too little to tell a rotated page from one word that happens to be
+        # tall, and guessing here would rotate images that are already upright.
+        return False
+
+    tall = sum(1 for b in boxes if b["height"] > b["width"] * SIDEWAYS_RATIO)
+    return tall / len(boxes) >= SIDEWAYS_SHARE
+
+
+def _upright(
+    engine: "Engine",
+    image: PreparedImage,
+    lines: list[dict[str, Any]],
+) -> tuple[PreparedImage, list[dict[str, Any]], int, list[str]]:
+    """
+    Turns a sideways label the right way up and reads it again.
+
+    ── WHY THIS IS NOT THE ROTATION FALLBACK BELOW ────────────────────────────
+
+    There was already rotation handling, but it only ran `if not lines` — when
+    the image read as literally nothing. A label on its side does not read as
+    nothing. PaddleOCR's text-line orientation classifier turns each detected
+    line the right way up before recognising it, so a sideways photograph comes
+    back looking *plausible*: two dozen lines, most of them right. What it
+    quietly loses is the hard ones, and on a Legal Metrology label the hard ones
+    are the declarations. Measured on one Haldiram moong dal pack:
+
+        sideways                       corrected
+        13.08/26   (manufacture)  ->   13/08/26
+        121/2?     (use by)       ->   12/01/27
+        Rs.0.309   (unit price)   ->   Rs.0.30/9
+        MRP.INCLOF (label)        ->   MRP.(INCL. OF
+        - missing -               ->   FSSAI Lic. No. 10013051000541
+        mean confidence 0.918     ->   0.969
+
+    Both dates, a third licence number and the unit price — the fields the rule
+    engine actually decides on — were the ones being lost, while the reading as
+    a whole looked healthy enough that nothing downstream flagged it.
+
+    ── WHY IT TRIES BOTH DIRECTIONS ──────────────────────────────────────────
+
+    The geometry says the page is a quarter turn out; it cannot say which way,
+    because a detection box is stored corner-ordered and carries no reading
+    direction. Both are tried and the better kept. On the pack above the two
+    scored 0.965 and 0.969 — near enough that recognition barely cares, because
+    the orientation classifier flips the individual lines either way. What it
+    does decide is reading *order*, and that is worth one inference: the coding
+    strip downstream pairs the nth header with the nth value, and reversed order
+    pairs a batch number with a price.
+    """
+    if not _sideways(lines):
+        return image, lines, 0, []
+
+    used: list[str] = []
+    best_degrees = 0
+    best_image = image
+    best_lines = lines
+    best_quality = formatter.quality(lines)
+
+    for degrees in (90, 270):
+        used.append(f"rotate-{degrees}")
+        try:
+            turned = rotate(image, degrees)
+            found = _predict(engine, turned)
+        except Exception:  # noqa: BLE001
+            logger.warning("rotation %d failed", degrees, exc_info=True)
+            continue
+
+        if not found:
+            continue
+
+        scored = formatter.quality(found)
+        if scored <= best_quality:
+            continue
+
+        best_quality, best_degrees, best_image, best_lines = scored, degrees, turned, found
+
+    if best_degrees:
+        logger.info("label was on its side; read upright at %d degrees", best_degrees)
+
+    return best_image, best_lines, best_degrees, used
+
+
 def _extra_passes(
     engine: "Engine",
     image: PreparedImage,
@@ -687,6 +785,21 @@ def _read_with(
     models = [engine.label]
     passes = ["original"]
 
+    # ── Upright first ──────────────────────────────────────────────────────
+    #
+    # Before the enhancement passes, because contrast and sharpening spent on a
+    # label lying on its side buy far less than simply turning it the right way
+    # up — and because everything after this point reasons about layout. The
+    # coding strip pairs headers with values by position, and position only
+    # means anything once the page is the right way round.
+    #
+    # `image` is rebound, so the passes below, the measurement and the reading
+    # order all work in the corrected frame. The boxes are turned back to the
+    # frame of the stored photograph at the end, where the app draws them.
+    original_frame = image
+    image, lines, rotation, turned = _upright(engine, image, lines)
+    passes.extend(turned)
+
     # ── Extra passes, when the first one looks thin ────────────────────────
     #
     # Conditional rather than always-on, and the reason is the clock: an
@@ -756,6 +869,34 @@ def _read_with(
             len(lines),
         )
 
+    # ── Home again ─────────────────────────────────────────────────────────
+    #
+    # Everything above ran in the upright frame. The app draws evidence boxes on
+    # the photograph as the inspector took it, so the boxes have to go back —
+    # otherwise a highlight over the MRP lands somewhere in the corner of a
+    # sideways picture. `layoutBox` keeps the upright geometry for the backend's
+    # layout reasoning, which wants the opposite frame.
+    if rotation:
+        for line in lines:
+            line["layoutBox"] = line.get("boundingBox")
+            polygon = formatter.unrotate(
+                line.get("polygon"),
+                rotation,
+                original_frame.original_width,
+                original_frame.original_height,
+            )
+            if not polygon:
+                continue
+            line["polygon"] = polygon
+            xs = [point[0] for point in polygon]
+            ys = [point[1] for point in polygon]
+            line["boundingBox"] = {
+                "x": min(xs),
+                "y": min(ys),
+                "width": max(xs) - min(xs),
+                "height": max(ys) - min(ys),
+            }
+
     scored = [line["confidence"] for line in lines if "confidence" in line]
 
     return {
@@ -772,6 +913,10 @@ def _read_with(
             "languages": languages,
             "preprocessing": image.steps,
             "passes": passes,
+            # Zero when the photograph was already upright. Recorded because a
+            # rotated read is a different read, and a missed declaration on a
+            # sideways image is a different question from one on a flat scan.
+            "rotationApplied": rotation,
             "lowResolution": image.low_resolution,
             "lineCount": len(lines),
             "meanConfidence": round(sum(scored) / len(scored), 4) if scored else None,

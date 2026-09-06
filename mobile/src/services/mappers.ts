@@ -604,6 +604,7 @@ export function toInspectionSummary(dto: InspectionDTO): InspectionSummary {
     status: STATUS_IN[dto.status] ?? 'draft',
     imageCount: dto.images.length,
     violationCount: dto.complianceResult?.violations.length ?? 0,
+    pendingDeclarations: dto.review?.pendingFieldCount ?? 0,
     createdAt: dto.createdAt,
   };
 }

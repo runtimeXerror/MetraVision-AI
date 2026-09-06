@@ -14,7 +14,7 @@ import { evaluateCompliance, needsReview } from '../services/complianceService';
 import type { ExtractionResult } from '../services/extraction';
 import type { AggregateOCRResult } from '../services/ocr';
 import { reevaluateWithVerifiedFields, toLegacyStatus } from '../services/scan';
-import { statusFilterField, type ProductCategory, type StatsDTO } from '../types/domain';
+import { isPendingReviewExpr, statusFilter, type ProductCategory, type StatsDTO } from '../types/domain';
 import { ApiError } from '../utils/ApiError';
 import { nextInspectionReference } from '../utils/referenceId';
 import { created, ok, paginated } from '../utils/respond';
@@ -120,7 +120,7 @@ export async function listInspections(req: Request, res: Response): Promise<Resp
   // overwritten on finalize. See `statusFilterField` for what this was doing
   // before, and why a filed violation used to vanish from the register.
   if (params.status && params.status !== 'ALL') {
-    filter[statusFilterField(params.status)] = params.status;
+    Object.assign(filter, statusFilter(params.status));
   }
   if (params.productCategory) filter.productCategory = params.productCategory;
 
@@ -649,9 +649,10 @@ export async function getStats(req: Request, res: Response): Promise<Response> {
         violations: {
           $sum: { $cond: [{ $eq: ['$complianceResult.status', 'VIOLATION_DETECTED'] }, 1, 0] },
         },
-        pendingReviews: {
-          $sum: { $cond: [{ $eq: ['$status', 'REVIEW_REQUIRED'] }, 1, 0] },
-        },
+        // Not `status === 'REVIEW_REQUIRED'`: filing a record changed that
+        // column and emptied the tile while the declarations on it were still
+        // unanswered.
+        pendingReviews: { $sum: { $cond: [isPendingReviewExpr(), 1, 0] } },
         finalized: { $sum: { $cond: [{ $eq: ['$status', 'FINALIZED'] }, 1, 0] } },
         scoreSum: { $sum: { $ifNull: ['$complianceResult.score', 0] } },
         scoreCount: {

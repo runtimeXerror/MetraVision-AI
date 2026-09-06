@@ -360,6 +360,15 @@ export interface InspectionSummary {
   status: InspectionStatus;
   imageCount: number;
   violationCount: number;
+  /**
+   * Declarations nobody has ruled on yet.
+   *
+   * What the review queue is actually filtered by, here and on the server. A
+   * record leaves the queue when this reaches zero — not when it is filed,
+   * because an inspection can be filed with declarations still unanswered and
+   * those answers are still owed.
+   */
+  pendingDeclarations: number;
   createdAt: string;
 }
 
