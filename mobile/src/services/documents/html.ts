@@ -86,7 +86,17 @@ const STYLES = `
    * ran text to the last millimetre of the sheet and resumed at the first
    * millimetre of the next.
    */
-  .page { padding: 18px 26px 0; }
+  /*
+   * ── INSET ONCE, NOT TWICE ──────────────────────────────────────────────
+   *
+   * @page already sets an 11 mm side margin — about 31 pt on a 595 pt sheet —
+   * and this added 26 pt of padding inside it. Together they took 114 pt off
+   * the usable width, nearly a fifth of the page, and gave it to nothing. The
+   * page margin is the one that has to stay, because it is what a printer can
+   * actually reach; this becomes a hairline of breathing room rather than a
+   * second margin.
+   */
+  .page { padding: 14px 6px 0; }
 
   /*
    * The repeating frame.
@@ -113,7 +123,9 @@ const STYLES = `
    * the final page — which is what put the footer halfway up a short last page
    * instead of at the bottom of the sheet.
    */
-  table.frame > tfoot > tr > td { height: 30px; }
+  /* Reserves exactly the footer's own height plus a little air, so the body
+     stops just above it rather than well short of it. */
+  table.frame > tfoot > tr > td { height: 22px; }
 
   /*
    * The footer itself, pinned to the bottom of every sheet.
@@ -123,18 +135,33 @@ const STYLES = `
    * footer, and the only mechanism that puts one at the bottom of a page the
    * content did not fill. The tfoot spacer above keeps the two from colliding.
    */
+  /*
+   * ── THE RUNNING FOOTER ─────────────────────────────────────────────────
+   *
+   * No rule above it. It had one, and against the page's own bottom edge that
+   * read as two lines a few points apart with nothing between them — a border
+   * drawn to separate the footer from a body that had already ended.
+   *
+   * Seven-point grey at the foot of the sheet is unmistakably a footer without
+   * being fenced off, so the line goes and the band closes up: a fixed height
+   * with the text centred in it, rather than padding above the text and
+   * whatever was left below.
+   *
+   * Inset to match the page padding, so the three items line up with the columns of the
+   * table above them instead of starting somewhere of their own.
+   */
   .runfoot {
     position: fixed;
-    left: 26px;
-    right: 26px;
+    left: 6px;
+    right: 6px;
     bottom: 0;
-    padding-top: 5px;
-    border-top: 0.75px solid #BDBDBD;
-    font-size: 7px;
-    color: #6B6B6B;
+    height: 18px;
     display: flex;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
+    font-size: 7px;
+    color: #6B6B6B;
   }
   .hi {
     font-family: "Noto Sans Devanagari", "Nirmala UI", "Devanagari Sangam MN",
@@ -194,7 +221,7 @@ const STYLES = `
    */
   h2 {
     font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
-    margin: 20px 0 7px; padding-bottom: 4px;
+    margin: 14px 0 6px; padding-bottom: 3px;
     color: #0A2A5C; border-bottom: 1px solid #0A2A5C;
   }
   p { margin: 0 0 6px; }
@@ -217,7 +244,7 @@ const STYLES = `
    */
   table { width: 100%; border-collapse: collapse; border: 0.75px solid #C8C8C8; }
   th, td {
-    text-align: left; padding: 5px 8px; vertical-align: top;
+    text-align: left; padding: 4px 7px; vertical-align: top;
     border-bottom: 0.5px solid #E0E0E0; border-right: 0.5px solid #E0E0E0;
   }
   th:last-child, td:last-child { border-right: none; }
@@ -233,7 +260,7 @@ const STYLES = `
   /* Verdict */
   .verdict {
     display: flex; justify-content: space-between; align-items: flex-end; gap: 16px;
-    margin-top: 14px; padding: 12px 14px; border: 1.5px solid #1A1A1A;
+    margin-top: 10px; padding: 10px 12px; border: 1.5px solid #1A1A1A;
   }
   .verdict .label { font-size: 7.5px; letter-spacing: 0.7px; text-transform: uppercase; color: #666666; }
   .verdict .status { font-size: 15px; font-weight: 700; margin-top: 2px; }
@@ -300,10 +327,20 @@ const STYLES = `
    * upright is portrait and a 150x110 landscape frame would letterbox it to
    * nothing.
    */
-  .evidence { display: flex; flex-wrap: wrap; gap: 10px; }
-  .evidence figure { margin: 0; width: 170px; }
+  /*
+   * The photographs take the width they are given.
+   *
+   * Fixed at 170 pt they left two thirds of the row empty on a two-image
+   * record — which is most records, since the capture flow asks for a front and
+   * a back. Flexing means two images are half a page wide each and four are a
+   * quarter, and in every case the evidence is as large as the paper allows.
+   * On a document where the photographs are the exhibit, unused width is
+   * evidence made smaller for no reason.
+   */
+  .evidence { display: flex; flex-wrap: wrap; gap: 12px; }
+  .evidence figure { margin: 0; flex: 1 1 150px; max-width: 260px; }
   .evidence img {
-    width: 170px; height: 170px; object-fit: contain;
+    width: 100%; height: 200px; object-fit: contain;
     border: 1px solid #C9C9C9; background: #FFFFFF;
   }
   .evidence figcaption { font-size: 8px; color: #444444; margin-top: 3px; }
@@ -349,7 +386,7 @@ const STYLES = `
    * authenticated session, which is a real fact and a weaker one than a
    * cryptographic signature.
    */
-  .sign { display: flex; justify-content: space-between; gap: 40px; margin-top: 32px; }
+  .sign { display: flex; justify-content: space-between; gap: 40px; margin-top: 22px; }
   .sign > div { flex: 1; }
   .sign .line { border-top: 1px solid #1A1A1A; padding-top: 4px; font-size: 8.5px; }
   .sign .slot { min-height: 54px; }
