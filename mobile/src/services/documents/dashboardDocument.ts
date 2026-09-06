@@ -68,7 +68,7 @@ function kpiBlock(overview: DashboardOverview): string {
     ['Compliance rate', `${s.complianceRate}%`],
     ['Violations', s.violations],
     ['Pending review', s.pendingReviews],
-    ['Findings raised', s.totalViolationFindings],
+    ['Issues raised', s.totalViolationFindings],
     ['Finalized', s.finalized],
     ['Active officers', s.activeInspectors],
   ];
@@ -149,14 +149,14 @@ function dashboardBody(overview: DashboardOverview, inspector?: Inspector | null
 
   sections.push(`<h2>Enforcement activity over the period</h2>${trendBlock(overview)}`);
 
-  sections.push(`<h2>Most frequent findings</h2>
+  sections.push(`<h2>Most frequent issues</h2>
     ${barListBlock(
       overview.violationTypes.map((type) => ({
         label: type.title,
         sublabel: `${violationCategoryLabels[type.category]} · ${severityLabels[type.severity]} · ${type.code}`,
         value: type.count,
       })),
-      'No findings were raised in this period.',
+      'No issues were raised in this period.',
     )}`);
 
   sections.push(`<h2>By product category</h2>
@@ -164,7 +164,7 @@ function dashboardBody(overview: DashboardOverview, inspector?: Inspector | null
       overview.violationsByCategory.length === 0
         ? `<p class="faint">No inspections were recorded in this period.</p>`
         : `<table>
-            <tr><th>Category</th><th class="num">Inspections</th><th class="num">Findings</th><th class="num">Findings / inspection</th></tr>
+            <tr><th>Category</th><th class="num">Inspections</th><th class="num">Issues</th><th class="num">Issues / inspection</th></tr>
             ${overview.violationsByCategory
               .map(
                 (row) => `<tr>
@@ -213,7 +213,7 @@ function dashboardBody(overview: DashboardOverview, inspector?: Inspector | null
       <table>
         <tr>
           <th>District</th><th>State</th><th class="num">Inspections</th>
-          <th class="num">Findings</th><th class="num">Assessed</th><th class="num">Rate</th>
+          <th class="num">Issues</th><th class="num">Assessed</th><th class="num">Rate</th>
         </tr>
         ${overview.districts
           .map(

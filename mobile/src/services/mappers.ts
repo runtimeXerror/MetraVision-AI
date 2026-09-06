@@ -72,7 +72,15 @@ export interface InspectionDTO {
   inspectionId: string;
   inspector: { id: string; name: string; inspectorId: string; role: string };
   business: { name: string; ownerName?: string; contact?: string };
-  location: { address: string; district?: string; state?: string; pincode?: string };
+  location: {
+    address: string;
+    district?: string;
+    state?: string;
+    pincode?: string;
+    latitude?: number;
+    longitude?: number;
+    accuracyM?: number;
+  };
   productCategory?: string;
   productName?: string;
   images: Array<{
@@ -547,7 +555,25 @@ export function toInspection(dto: InspectionDTO): Inspection {
     inspectorName: dto.inspector.name,
     details: {
       businessName: dto.business.name,
+      // The address is one field of the location, not the whole of it.
+      //
+      // This read `dto.location.address` alone, so every other part of the
+      // location the app had just sent — the district and state resolved by the
+      // reverse-geocode, the PIN, and the GPS fix itself — was dropped on the
+      // way back in. Both writes return `toInspection(dto)`, so the stripped
+      // version immediately overwrote the good one in the store: the report
+      // printed "District Not declared / State Not declared" and a blank GPS
+      // fix on an inspection whose coordinates were sitting in the database.
+      //
+      // Nothing else in the chain was at fault — the schema stores all seven
+      // fields, `toDTO` emits them, and both create and update send them.
       location: dto.location.address,
+      district: dto.location.district,
+      state: dto.location.state,
+      pincode: dto.location.pincode,
+      latitude: dto.location.latitude,
+      longitude: dto.location.longitude,
+      accuracyM: dto.location.accuracyM,
       productCategory: dto.productCategory ? CATEGORY_IN[dto.productCategory] : undefined,
       productName: dto.productName,
       inspectorNotes: dto.notes,

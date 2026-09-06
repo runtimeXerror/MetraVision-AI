@@ -282,12 +282,20 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
         ${rows}
       </table>`);
 
-    /* Findings */
+    /*
+     * "Issues identified", not "Findings".
+     *
+     * A finding is what an auditor calls anything they noticed, including the
+     * things that were fine — so a reader who is not an auditor cannot tell
+     * from the heading whether this section is good news or bad. Everything
+     * listed here contravenes a rule, and the heading should say so in the
+     * words the dealer receiving the report already uses.
+     */
     const violations = analysis.compliance.violations;
-    sections.push(`<h2>Findings (${violations.length})</h2>
+    sections.push(`<h2>Issues identified (${violations.length})</h2>
       ${
         violations.length === 0
-          ? `<p class="muted">No contravention was observed on the declarations examined.</p>`
+          ? `<p class="muted">No issue was found in the declarations examined.</p>`
           : violations
               .map(
                 (violation, index) => `<div class="finding">
