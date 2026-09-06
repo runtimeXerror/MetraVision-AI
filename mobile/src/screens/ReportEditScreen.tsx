@@ -141,7 +141,10 @@ export function ReportEditScreen({ route, navigation }: RootScreenProps<'ReportE
       <Body>
         <Notice
           icon="shield-checkmark-outline"
-          text="Corrections are printed in the PDF beside the value originally recorded and attributed to you. The filed inspection record itself is never changed."
+          // Kept, because it is about what the officer is doing right now
+          // rather than about the system, and shortened to the two facts that
+          // change the decision: it is attributed, and nothing is overwritten.
+          text="Your corrections are printed beside the original values and attributed to you. The filed record is not changed."
         />
 
         {/* Premises */}

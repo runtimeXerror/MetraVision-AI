@@ -115,7 +115,12 @@ export function AnalysisScreen() {
 
             <Notice
               icon="information-circle-outline"
-              text="Text recognition, field extraction and the Legal Metrology rule checks all run on the departmental server. Nothing is decided on this device."
+              // Was: "Text recognition, field extraction and the Legal
+              // Metrology rule checks all run on the departmental server.
+              // Nothing is decided on this device." True, and a fact about the
+              // deployment topology — which is not something an officer
+              // watching a progress bar has any use for.
+              text="Reading the photographs and applying the rules. This takes a few seconds for each face."
               style={{ marginTop: spacing.md }}
             />
           </>

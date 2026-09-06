@@ -390,11 +390,19 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
           </Row>
         </Card>
 
-        <Notice
-          icon="flask-outline"
-          text="Findings in this report were produced by a simulated analysis for demonstration. Values confirmed by the inspector are marked as such."
-          style={{ marginTop: spacing.md }}
-        />
+        {/* ── AND THIS ONE WAS ON THE REPORT ─────────────────────────────
+            "Findings in this report were produced by a simulated analysis for
+            demonstration."
+
+            Printed under the findings of a document an officer shows a dealer.
+            It was true in Phase 2 and false from Phase 4, and in between it sat
+            on every report telling the party it was served on that the findings
+            against them were fabricated for a demo. Nothing else in this
+            application could do more damage to an enforcement action.
+
+            The scan record carries the engine and its version, and the result
+            screen says plainly when a reading really was a mock. Neither of
+            those is a standing sentence on a filed document. */}
       </Body>
 
       <ActionBar>

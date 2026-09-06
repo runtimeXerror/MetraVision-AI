@@ -6,7 +6,7 @@ import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { GovHeader } from '../components/branding';
 import { OfflineBar } from '../components/offline';
 import { InspectionCard, StatTile, StatTileRowSkeleton } from '../components/domain';
-import { Body, Notice, Screen } from '../components/layout';
+import { Body, Screen } from '../components/layout';
 import {
   Card,
   EmptyState,
@@ -335,10 +335,18 @@ export function HomeScreen() {
           </>
         )}
 
-        <Notice
-          text="Inspections, uploads and history are saved to the departmental server. Label analysis is simulated for demonstration — the OCR pipeline arrives in Phase 4."
-          style={{ marginTop: spacing.lg }}
-        />
+        {/* ── THE NOTICE THAT USED TO CLOSE THIS SCREEN ──────────────────
+            "Inspections, uploads and history are saved to the departmental
+            server. Label analysis is simulated for demonstration — the OCR
+            pipeline arrives in Phase 4."
+
+            Two faults, and the second is the serious one. It described where
+            the software keeps its data, to an officer who opens this screen to
+            start an inspection and can do nothing with that. And it was no
+            longer true: PP-OCRv5 reads these photographs for real, and has
+            since Phase 4 landed. A standing line that was once accurate and
+            quietly stopped being so is worse than no line, because it is read
+            with the same trust as the rest of the screen. */}
       </Body>
     </Screen>
   );

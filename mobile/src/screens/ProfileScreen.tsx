@@ -6,7 +6,7 @@ import { confirm, notify } from '../components/Dialog';
 
 import { Avatar } from '../components/domain';
 import { Input } from '../components/forms';
-import { Body, HeroHeader, Notice, Screen } from '../components/layout';
+import { Body, HeroHeader, Screen } from '../components/layout';
 import { Button, Card, ErrorState, Row, SectionHeader, Skeleton, Txt } from '../components/ui';
 import { APP_META, userRoleLabels } from '../constants/labels';
 import { colors, radius, spacing } from '../constants/theme';
@@ -230,11 +230,10 @@ export function ProfileScreen() {
           <OfflineDataRow />
         </Card>
 
-        <Notice
-          icon="information-circle-outline"
-          text="Sign-in, inspections, image upload and history run against the departmental server. Label analysis is simulated in this release — the OCR pipeline arrives in Phase 4."
-          style={{ marginTop: spacing.md }}
-        />
+        {/* The same "analysis is simulated" claim stood here, and stopped
+            being true when the OCR service landed. The About card above already
+            names the engine and its version, which is the honest answer to the
+            question this was trying to answer. */}
 
         <Button
           title="Sign Out"

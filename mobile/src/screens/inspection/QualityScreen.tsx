@@ -261,7 +261,10 @@ export function QualityScreen() {
 
         <Notice
           icon="flask-outline"
-          text="Quality scores are assessed on the device and are indicative. The declaration analysis runs on the departmental server."
+          // The second sentence said where the analysis runs, which is not
+          // the officer's concern. The first is worth keeping: it is the reason
+          // a "Good" here does not guarantee a clean read.
+          text="These scores are indicative — a photograph rated Good can still be too soft for small print."
           style={{ marginTop: spacing.sm }}
         />
       </Body>
