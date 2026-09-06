@@ -18,6 +18,7 @@ import {
   toLegacyChecks,
   toLegacyFields,
   toLegacyStatus,
+  toLapsedDateFinding,
   toLegacyViolations,
   scoreFor,
   renderReportHtml,
@@ -411,7 +412,9 @@ async function persistScan(inspection: InspectionDocument, outcome: ScanOutcome)
     status: legacyStatus,
     score: scoreFor(compliance),
     checks: toLegacyChecks(compliance),
-    violations: toLegacyViolations(issues),
+    // The rule findings, then the one observation that is not a rule finding
+    // and says so in its own text.
+    violations: [...toLegacyViolations(issues), ...toLapsedDateFinding(compliance.warnings)],
     warnings: compliance.warnings.map((warning) => warning.message),
     ruleSetId: compliance.ruleSetVersion,
     ruleSetLabel: `Legal Metrology (Packaged Commodities) Rules, 2011 — as in force on ${compliance.inspectionDate}`,

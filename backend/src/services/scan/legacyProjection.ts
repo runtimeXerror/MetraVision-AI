@@ -1,4 +1,4 @@
-import type { ComplianceCheck, ComplianceResult } from '../../compliance/types/ComplianceResult';
+import type { ComplianceCheck, ComplianceResult, ComplianceWarning } from '../../compliance/types/ComplianceResult';
 import type {
   ComplianceCheckAttrs,
   ExtractedFieldAttrs,
@@ -211,6 +211,51 @@ export function toLegacyViolations(issues: ComplianceIssue[]): ViolationAttrs[] 
       bbox: issue.evidence[0]?.bbox ? [...issue.evidence[0].bbox] : undefined,
       sourceImageId: issue.evidence[0]?.imageId,
     }));
+}
+
+/**
+ * The lapsed-date observation, as an entry in the findings list.
+ *
+ * ── WHY IT IS HERE AND NOT A RULE CHECK ────────────────────────────────────
+ *
+ * An inspector holding a packet whose use-by date has gone needs to see that
+ * with the other findings, not three sections further down among the notes.
+ * But it is not a contravention of the Packaged Commodities Rules and must
+ * never be printed as one: Rule 6(1)(da) requires the best-before declaration
+ * to be *present*, and on such a package it is. Whether the article may still
+ * be offered for sale is a question under the Food Safety and Standards Act,
+ * which this rule corpus does not carry.
+ *
+ * So it is projected here rather than generated as an issue — issues carry a
+ * clause, a notification and the corpus's own legal text, and this has none of
+ * those to give. `ruleReference` names the Act that does govern it, the
+ * description says in its first clause that the labelling rules are not
+ * breached, and the recommendation is a referral rather than a notice. A reader
+ * of the report sees the finding; a reader of the finding sees exactly what is
+ * and is not being claimed.
+ */
+export function toLapsedDateFinding(warnings: ComplianceWarning[]): ViolationAttrs[] {
+  const lapsed = warnings.find((warning) => warning.code === 'DECLARED_DATE_PASSED');
+  if (!lapsed) return [];
+
+  return [
+    {
+      code: 'DECLARED_DATE_PASSED',
+      title: 'The date declared on the package has passed',
+      ruleReference: 'Food Safety and Standards Act, 2006 — not the Packaged Commodities Rules',
+      // The dates and the batch are what let a packet be traced to its run,
+      // and this is a statement about one of them.
+      category: 'TRACEABILITY',
+      severity: 'MAJOR',
+      description: lapsed.message,
+      expected: 'A package offered for retail sale is within the date it declares.',
+      observed: null,
+      recommendation:
+        'Verify the packet on the shelf. If stock past its declared date is still being offered ' +
+        'for sale, refer it to the Food Safety officer — no notice under the Packaged ' +
+        'Commodities Rules arises from the date alone.',
+    },
+  ];
 }
 
 /**

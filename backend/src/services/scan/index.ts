@@ -15,6 +15,7 @@ export {
   toLegacyChecks,
   toLegacyFields,
   toLegacyStatus,
+  toLapsedDateFinding,
   toLegacyViolations,
 } from './legacyProjection';
 
