@@ -5,6 +5,7 @@ import { firstAmount, normaliseLine, normaliseText, stripLabel } from './normali
 import type { ProductCategory } from '../../types/domain';
 
 import { categoryFrom, commodityNounIn, type CommodityMatch } from './commodity';
+import { readCodingStrip } from './codingStrip';
 import {
   ALL_LABELS,
   FIELD_SPECS,
@@ -547,7 +548,67 @@ export class InformationExtractionService {
       );
     }
 
+    /**
+     * ── THE CODING STRIP, BEFORE ANYTHING ELSE ─────────────────────────────
+     *
+     * Read first and claimed first, for the same reason a pointer sentence is:
+     * once the ordinary matchers reach these lines they take them apart. On the
+     * Bagrry's pack the batch-number matcher found `B.NO.` inside the sentence
+     * "WRITE TO (INDICATING B.NO. & PKD.)" four inches below the strip and
+     * recorded the batch number as `& PKD.)`, while the actual code —
+     * `B19260626`, read at full confidence — sat unclaimed.
+     *
+     * A strip reading is strong evidence: a pre-printed header on the same row
+     * as three others, with a value of exactly the shape it asks for beneath.
+     * Nothing the pattern pass can find later beats it, so it goes in first and
+     * the lines it used are taken out of circulation.
+     */
+    const stripReadings = readCodingStrip(
+      lines.map((line) => ({ index: line.index, text: line.text, raw: line.raw, box: boxOf(line) })),
+    );
+
+    const fromStrip = new Set<string>();
+
+    for (const reading of stripReadings) {
+      const used = reading.lines
+        .map((entry) => lines[entry.index])
+        .filter((line): line is Line => line !== undefined);
+
+      for (const line of used) line.claimedBy = reading.field;
+
+      const spec = FIELD_SPECS.find((candidate) => candidate.field === reading.field);
+      const bucket = spec?.engineField === false ? informational : fields;
+
+      bucket[reading.field] = {
+        field: reading.field,
+        label: spec?.label ?? reading.field,
+        value: reading.value,
+        confidence: confidenceOf(used),
+        status: 'FOUND',
+        evidence: used.map((line) =>
+          evidenceFor(line, spaceByImage.get(line.region?.imageId ?? '')),
+        ),
+        method: 'PATTERN_MATCH',
+        matchedText: used.map((line) => line.raw).join(' '),
+      };
+
+      fromStrip.add(reading.field);
+    }
+
+    if (fromStrip.size > 0) {
+      warnings.push(
+        `${fromStrip.size} declaration${fromStrip.size === 1 ? '' : 's'} were read from the ` +
+          'coding strip — the values applied on the packing line, under their pre-printed ' +
+          'headings. Coded print is the least legible on any package; check them against the ' +
+          'packet before acting on them.',
+      );
+    }
+
     for (const spec of FIELD_SPECS) {
+      // Already settled by the strip, and better sourced than anything a
+      // pattern will find in the artwork.
+      if (fromStrip.has(spec.field)) continue;
+
       const found = this.findField(spec, lines, spaceByImage);
       const bucket = spec.engineField ? fields : informational;
 

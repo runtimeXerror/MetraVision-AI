@@ -1,0 +1,18 @@
+{
+  "package": "Bagrry's Corn Flakes+ 800 g",
+  "category": "packaged_food",
+  "conditions": ["real photograph", "inkjet coding strip", "low contrast on white label"],
+  "declarations": {
+    "mrp": "398.00",
+    "manufacturing_date": "26/06/2026",
+    "best_before": "25/03/2027",
+    "batch_number": "B19260626",
+    "unit_sale_price": "0.50",
+    "net_quantity": "800 g",
+    "consumer_care": "consumercare@bagrrys.com",
+    "manufacturer": "Bagrrys India Private Limited",
+    "commodity_name": "Corn Flakes",
+    "brand": "Bagrry's"
+  },
+  "note": "A real photograph, not synthetic. The whole declaration block is an inkjet coding strip on a white label patch: pre-printed headers MRP / PKD. / USE BY / B.NO. in one row, and the coder's values in the row beneath. The headers do not sit above their own values — the coder prints at its own pitch, so by the fourth column the value is 358px to the LEFT of the header it belongs to. This is the layout on most Indian FMCG packs and it is why x-position matching cannot be the answer."
+}
