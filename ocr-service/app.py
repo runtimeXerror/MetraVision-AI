@@ -36,6 +36,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from services import ocr_service
@@ -146,7 +147,18 @@ async def ocr(image: UploadFile = File(...)) -> JSONResponse:
         )
 
     try:
-        result = ocr_service.read(data)
+        # Off the event loop.
+        #
+        # `ocr_service.read` is two to three seconds of CPU-bound inference, and
+        # awaiting nothing while it runs meant the coroutine held the loop for
+        # its whole duration — so concurrent reads were processed strictly one
+        # at a time, and `/health` was blocked behind them, which is why a scan
+        # in progress made this service look down.
+        #
+        # `run_in_threadpool` hands it to the same worker pool FastAPI uses for
+        # sync handlers. Concurrency is then bounded by the engine pool inside
+        # the service rather than by the loop.
+        result = await run_in_threadpool(ocr_service.read, data)
     except InvalidImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ocr_service.OCRUnavailableError as exc:

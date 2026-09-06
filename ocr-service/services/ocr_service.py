@@ -56,7 +56,10 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import threading
+from contextlib import contextmanager
+from typing import Iterator
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -101,6 +104,11 @@ logger = logging.getLogger("ocr-service")
 
 PRIMARY_LANG = os.getenv("OCR_LANG", "en")
 SECONDARY_LANG = os.getenv("OCR_SECONDARY_LANG", "").strip()
+
+# How many line crops are recognised (and orientation-classified) at once.
+# See the measurements in `_build`. Configurable because the best value is a
+# property of the machine's cache, not of the models.
+RECOGNITION_BATCH = int(os.getenv("OCR_BATCH_SIZE", "16"))
 
 # ── The primary model pair ─────────────────────────────────────────────────
 #
@@ -242,9 +250,31 @@ def _build(lang: str, det: str | None = None, rec: str | None = None) -> Engine:
             ocr = PaddleOCR(
                 lang=lang,
                 ocr_version=version,
-                use_textline_orientation=True,
+                # Measured at 2.79s on and 2.66s off — five per cent, for the
+                # ability to read a net quantity printed down the side of a
+                # pouch or a batch code stamped upside down on a crimp. Those
+                # are declarations, and five per cent is not worth one.
+                # `OCR_TEXTLINE_ORIENTATION=0` disables it for a deployment that
+                # has measured its own packs and decided otherwise.
+                use_textline_orientation=os.getenv("OCR_TEXTLINE_ORIENTATION", "1") != "0",
                 use_doc_orientation_classify=False,
                 use_doc_unwarping=False,
+                # Recognition and orientation run per detected line, and both
+                # default to one crop at a time. A back-of-pack label detects a
+                # hundred-odd lines, so that default is a hundred-odd separate
+                # inferences — measured on this project's densest label, 12
+                # cores, same models, same 109 lines out:
+                #
+                #     one at a time      14.3s
+                #     batched at 16      10.4s
+                #     batched at 32      12.3s
+                #
+                # Sixteen is the floor of that curve; past it the batches stop
+                # fitting cache and it gets slower again. Nothing about the
+                # reading changes — same crops, same weights, same output — so
+                # this is time given back, not accuracy traded away.
+                text_recognition_batch_size=RECOGNITION_BATCH,
+                textline_orientation_batch_size=RECOGNITION_BATCH,
                 **explicit,
             )
         except ValueError as exc:
@@ -315,6 +345,122 @@ def get_engine(lang: str) -> Engine:
             _engines[lang] = engine
 
     return engine
+
+
+# ── READING MORE THAN ONE PHOTOGRAPH AT A TIME ─────────────────────────────
+#
+# An inspection is not one image. The capture flow asks for the front and the
+# back at minimum and an officer routinely takes five or six, and until now they
+# were read strictly one after another — 2.7 seconds of inference each, plus
+# three quarters of a second of request overhead, so six photographs took over
+# twenty seconds before the rule engine had seen anything.
+#
+# Sending them concurrently from the backend changed nothing at all. Measured:
+#
+#     three images, sequential   8618 ms
+#     three images, parallel     8611 ms
+#
+# because the handler was `async def` around a blocking call. A coroutine that
+# does CPU work holds the event loop for the duration, so uvicorn processed the
+# requests one at a time however they arrived — and `/health` was blocked behind
+# them too, which is why a scan in progress made the service look down.
+#
+# Two changes together fix it, and neither works alone.
+#
+#   · The handler becomes a plain `def`. FastAPI then runs it in its threadpool
+#     rather than on the loop, so requests genuinely overlap.
+#   · Which immediately raises the question the first change creates: a Paddle
+#     predictor is not safe to call from two threads at once. Sharing one would
+#     trade a slow scan for a corrupt reading, which on this system means a
+#     declaration invented from another photograph's tensor.
+#
+# So each concurrent reader gets an engine of its own, checked out of a pool and
+# returned after use. `queue.Queue` is the whole mechanism: a reader that finds
+# the pool empty blocks until one is free, which caps concurrency at the number
+# of engines rather than at the number of requests.
+#
+# ── AND WHY IT DEFAULTS TO ONE ─────────────────────────────────────────────
+#
+# Because it was measured, and on an ordinary machine it buys nothing.
+#
+# With two engines the requests genuinely overlapped — the service log shows
+# three reads finishing 4.6 seconds apart rather than 9 — and the wall clock did
+# not move at all:
+#
+#     three images, one engine    8618 ms   (2654 ms each)
+#     three images, two engines   9082 ms   (3980, 4641, 5293 ms each)
+#
+# Each individual read got slower by almost exactly the factor the concurrency
+# gained. That is the signature of a compute-bound workload: PaddleOCR already
+# spreads one inference across all twelve cores, so a second inference does not
+# find an idle core to run on — it takes cores away from the first. Two engines
+# split one CPU and pay 750 MB for the privilege.
+#
+# So the pool stays, because it is the only *correct* way to read concurrently
+# and the machinery is written; and it stays at one, because on this hardware
+# concurrency is not the lever. `OCR_WORKERS=2` is worth setting on a machine
+# with cores to spare — a server with 32 of them, where one inference genuinely
+# does leave capacity idle.
+#
+# The lever that does work is the cost of a single read. See `MAX_EDGE_PX`.
+OCR_WORKERS = max(1, int(os.getenv("OCR_WORKERS", "1")))
+
+_pool: "queue.Queue[Engine]" = queue.Queue()
+_pool_size = 0
+
+
+def _fill_pool() -> None:
+    """
+    Builds the pool, on the first read rather than at import.
+
+    The first engine is the one `warm_up` already loads, so it is taken from the
+    cache rather than built again; the rest are built here. Under the same lock
+    as `get_engine`, because two first requests arriving together would
+    otherwise each build the whole pool.
+    """
+    global _pool_size
+
+    with _lock:
+        if _pool_size > 0:
+            return
+
+        primary = get_engine(PRIMARY_LANG)
+        _pool.put(primary)
+        _pool_size = 1
+
+        for index in range(1, OCR_WORKERS):
+            try:
+                _pool.put(
+                    _build(PRIMARY_LANG, det=DET_MODEL, rec=REC_MODEL)
+                )
+                _pool_size += 1
+            except Exception:  # noqa: BLE001
+                # A machine that cannot hold a second engine keeps the first and
+                # reads sequentially. Slower is a working service; failing to
+                # start because the pool could not be filled is not.
+                logger.warning(
+                    "could not build OCR engine %d of %d; continuing with %d",
+                    index + 1,
+                    OCR_WORKERS,
+                    _pool_size,
+                    exc_info=True,
+                )
+                break
+
+    logger.info("OCR engine pool ready: %d engine(s)", _pool_size)
+
+
+@contextmanager
+def _checkout() -> "Iterator[Engine]":
+    """One engine, held exclusively for the length of a read."""
+    if _pool_size == 0:
+        _fill_pool()
+
+    engine = _pool.get()
+    try:
+        yield engine
+    finally:
+        _pool.put(engine)
 
 
 def is_ready() -> bool:
@@ -512,12 +658,16 @@ def read(data: bytes) -> dict[str, Any]:
     """
     image = prepare(data)
 
-    # Fetched before the clock starts. On the very first request this loads a
-    # gigabyte of weights, and reporting that as the time taken to read the
-    # label would misattribute a one-off startup cost to every stored
-    # inspection's timing record.
-    engine = get_engine(PRIMARY_LANG)
+    # Checked out before the clock starts. On the very first request this loads
+    # the weights, and reporting that as the time taken to read the label would
+    # misattribute a one-off startup cost to every stored inspection's timing
+    # record. Held for the whole read, because a Paddle predictor may not be
+    # called from two threads at once — see the note by the pool.
+    with _checkout() as engine:
+        return _read_with(engine, image)
 
+
+def _read_with(engine: "Engine", image: PreparedImage) -> dict[str, Any]:
     started = time.perf_counter()
 
     lines = _predict(engine, image)

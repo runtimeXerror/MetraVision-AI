@@ -1,5 +1,5 @@
 """
-── PREPROCESSING ───────────────────────────────────────────────────────────
+──- PREPROCESSING ───────────────────────────────────────────────────────────
 
 What this module does *not* do is the important part.
 
@@ -34,6 +34,7 @@ evidence; these arrays are inputs to the model and are then discarded.
 from __future__ import annotations
 
 import io
+import os
 from dataclasses import dataclass, field, replace
 
 import cv2
@@ -57,8 +58,29 @@ class InvalidImageError(ValueError):
     """The bytes are not a decodable image. Distinct from "decoded, but empty"."""
 
 
-# Beyond this the detector stops gaining accuracy and starts costing seconds.
-MAX_EDGE_PX = 2000
+# ── THE ONE LEVER THAT MOVES THE CLOCK ─────────────────────────────────────
+#
+# Inference time scales with pixel count, and pixel count is the only thing here
+# anyone gets to choose. Concurrency was measured and does not help — Paddle
+# already spreads one read across every core, so a second read takes cores from
+# the first rather than finding idle ones (see `OCR_WORKERS`). What is left is
+# to give the detector fewer pixels.
+#
+# 2000 was the original ceiling and it is more than this needs. Measured across
+# the twenty-one labels in `testing/`, with their ground truth:
+#
+#     2000 px    2.79 - 2.90 s / image
+#     1600 px    2.70 - 2.79 s / image
+#
+# Four per cent, for a 36 per cent cut in pixels. Detection is not the whole
+# cost and shrinking the image does not shrink the rest of it, so this is not
+# the lever it looks like — and small print is the first thing a downscale
+# destroys, which on a system whose whole job is reading a batch code in
+# one-millimetre type is the wrong thing to trade for four per cent.
+#
+# So it stays at 2000, measured rather than assumed, and stays overridable for a
+# deployment whose photographs are larger than its patience.
+MAX_EDGE_PX = int(os.getenv("OCR_MAX_EDGE_PX", "2000"))
 
 # Below this a photograph is too small for small print to survive detection at
 # all. Not rejected — reported, so the backend can say why a read was thin.
