@@ -83,6 +83,32 @@ function resultCell(check?: { result: string }): string {
   }
 }
 
+/**
+ * `2026.09.06 07:45:12 +05:30` — the form a digital signature certificate
+ * stamps onto a PDF, which is what this block is imitating.
+ *
+ * Dots rather than slashes, seconds rather than minutes, and the offset spelled
+ * out. The precision is the point: a signature time that cannot be compared
+ * against a server log to the second is not much of an attestation.
+ */
+function signatureStamp(value: string): string {
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return '—';
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  const offsetMinutes = -at.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const offset = `${sign}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(
+    Math.abs(offsetMinutes) % 60,
+  )}`;
+
+  return (
+    `${at.getFullYear()}.${pad(at.getMonth() + 1)}.${pad(at.getDate())} ` +
+    `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())} ${offset}`
+  );
+}
+
 /** A value with its superseded original printed underneath, where amended. */
 function amendedCell(current: string | null, original: string | null): string {
   // Red, because on a compliance report an absent mandatory declaration is the
@@ -388,20 +414,17 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
   sections.push(`
     <div class="sign">
       <div>
-        <div class="signed">
-          <div class="mark">Digitally filed</div>
-          <div class="who">${esc(inspection.inspectorName)}</div>
-          <div class="faint">${esc(inspection.inspectorId)} · Inspecting officer</div>
-          <div class="faint">${esc(
-            formatDateTime(inspection.finalizedAt ?? inspection.updatedAt),
-          )}</div>
-          <div class="faint">Record ${esc(inspection.referenceId)}</div>
-        </div>
+        <div class="slot"></div>
+        <div class="line">Controller / Legal Metrology Officer</div>
       </div>
       <div>
-        <div class="line">
-          <span class="faint">Controller / Legal Metrology Officer</span>
+        <div class="dsc">
+          <div class="by">Digitally signed by</div>
+          <div class="name">${esc(inspection.inspectorName)}</div>
+          <div>${esc(inspection.inspectorId)}</div>
+          <div>Date: ${esc(signatureStamp(inspection.finalizedAt ?? inspection.updatedAt))}</div>
         </div>
+        <div class="line">Inspecting Officer · Record ${esc(inspection.referenceId)}</div>
       </div>
     </div>`);
 

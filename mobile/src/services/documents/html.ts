@@ -286,11 +286,25 @@ const STYLES = `
   .bar > i { display: block; height: 100%; border-radius: 4px; background: #1A1A1A; }
 
   /* Evidence */
+  /*
+   * ── THE WHOLE PHOTOGRAPH ───────────────────────────────────────────────
+   *
+   * object-fit: cover filled a fixed 150x110 box by cropping whatever did not
+   * fit, and what did not fit was the edges of the packet. On a report where
+   * the photographs *are* the evidence that is not a layout choice — it is the
+   * document quietly deciding which part of the evidence the reader sees. A
+   * declaration printed near the edge of a panel could be cut off the exhibit
+   * that is supposed to prove it was read.
+   *
+   * object-fit: contain shows all of it. The box is taller because a packet photographed
+   * upright is portrait and a 150x110 landscape frame would letterbox it to
+   * nothing.
+   */
   .evidence { display: flex; flex-wrap: wrap; gap: 10px; }
-  .evidence figure { margin: 0; width: 150px; }
+  .evidence figure { margin: 0; width: 170px; }
   .evidence img {
-    width: 150px; height: 110px; object-fit: cover;
-    border: 1px solid #C9C9C9; background: #F4F4F4;
+    width: 170px; height: 170px; object-fit: contain;
+    border: 1px solid #C9C9C9; background: #FFFFFF;
   }
   .evidence figcaption { font-size: 8px; color: #444444; margin-top: 3px; }
 
@@ -316,18 +330,36 @@ const STYLES = `
    * proof. The Controller's half keeps its rule, because a countersignature is
    * an act this software cannot make.
    */
-  .signed {
-    margin-top: 24px; padding: 8px 10px;
-    border: 1px solid #0A2A5C; border-left-width: 3px;
-  }
-  .signed .mark {
-    font-size: 7px; letter-spacing: 0.7px; text-transform: uppercase; color: #0A2A5C;
-  }
-  .signed .who { font-size: 10px; font-weight: 700; margin-top: 2px; }
-
-  .sign { display: flex; justify-content: space-between; gap: 30px; margin-top: 28px; }
+  /*
+   * ── THE SIGNATURE BLOCK ────────────────────────────────────────────────
+   *
+   * Laid out the way a signed government document is, because that is the form
+   * a reader recognises and checks against.
+   *
+   * The digital signature sits *above* the rule it belongs to, on the signer's
+   * own side — not opposite it. It read as a bordered panel on the left facing
+   * the Controller's line on the right, which made it look like a second
+   * signatory rather than the attestation of the first, and left the officer's
+   * own line unsigned.
+   *
+   * Small, grey, right-aligned, three lines: who signed, which badge, and when
+   * to the second with the offset. That is the shape of the certificate text a
+   * DSC stamps onto a PDF, and it is deliberately not styled to look like
+   * anything more official than it is — the record was filed from an
+   * authenticated session, which is a real fact and a weaker one than a
+   * cryptographic signature.
+   */
+  .sign { display: flex; justify-content: space-between; gap: 40px; margin-top: 32px; }
   .sign > div { flex: 1; }
-  .sign .line { border-top: 1px solid #1A1A1A; margin-top: 40px; padding-top: 4px; font-size: 8.5px; }
+  .sign .line { border-top: 1px solid #1A1A1A; padding-top: 4px; font-size: 8.5px; }
+  .sign .slot { min-height: 54px; }
+
+  .dsc {
+    min-height: 54px;
+    font-size: 7.5px; line-height: 1.45; color: #444444; text-align: right;
+  }
+  .dsc .by { color: #1A1A1A; }
+  .dsc .name { font-weight: 700; }
 
   .foot {
     margin-top: 20px; padding-top: 8px; border-top: 1px solid #1A1A1A;

@@ -41,8 +41,26 @@ export interface OCRRegion {
   confidence?: number;
   boundingBox?: OCRBoundingBox;
   kind?: OCRRegionKind;
+  /**
+   * The printed size of this line, where the photograph carried a scale
+   * reference.
+   *
+   * Absent — never zero, never estimated — when nothing in the frame said how
+   * big a pixel is. That distinction is the whole of Rule 7: the engine treats
+   * a missing measurement as "not measured" and asks a person, and would treat
+   * a guessed one as evidence. See `services/measurement.py` in the sidecar.
+   */
+  measurements?: OCRMeasurements;
   /** Which uploaded image this region was read from. */
   imageId: string;
+}
+
+/** Millimetres, from a photograph with a reference of known size in it. */
+export interface OCRMeasurements {
+  /** Height of the printed characters, for Rule 7 Table-I. */
+  heightMm?: number;
+  /** Width of the line as printed. Not a per-character width. */
+  lineWidthMm?: number;
 }
 
 export interface OCRResult {
@@ -58,6 +76,20 @@ export interface OCRResult {
   imageSize?: { width: number; height: number };
   /** True when at least one region carried a provider-supplied confidence. */
   confidenceAvailable: boolean;
+  /**
+   * How the millimetre scale for this image was established, if at all.
+   *
+   * Recorded on the inspection because a measurement whose provenance is not
+   * stated is one nobody can check: a marker laid on the panel and a number the
+   * inspector typed are not the same evidence, and a report has to be able to
+   * say which it rests on.
+   */
+  scale?: {
+    mmPerPx: number;
+    source: string;
+    confidence: number;
+    perspectiveCorrected: boolean;
+  };
   /** Language hints the request was made with, for the audit record. */
   languageHints?: string[];
   imageId: string;

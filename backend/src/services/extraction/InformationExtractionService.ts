@@ -177,6 +177,29 @@ function evidenceFor(line: Line, space: { width: number; height: number } | unde
     reference.measurements = { legibility: line.region.confidence };
   }
 
+  /**
+   * The printed size, where the photograph carried a scale reference.
+   *
+   * This is what Rule 7 has been waiting for. Table-I is entirely in
+   * millimetres and the engine has carried its thresholds, tested, since the
+   * corpus was written — with nothing ever supplying a height, so every one of
+   * those checks resolved to "a person must measure this".
+   *
+   * Merged rather than assigned, because `legibility` above may already be
+   * here and the two are different claims about the same line: how legible the
+   * recogniser found it, and how tall it actually is.
+   *
+   * Absent whenever the sidecar could not establish a scale — no marker, no
+   * coin, no figure from the inspector — and the engine goes on asking a
+   * person, which is the correct answer when nothing measured anything.
+   */
+  if (line.region?.measurements?.heightMm !== undefined) {
+    reference.measurements = {
+      ...reference.measurements,
+      heightMm: line.region.measurements.heightMm,
+    };
+  }
+
   return reference;
 }
 

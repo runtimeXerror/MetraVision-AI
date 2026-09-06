@@ -344,9 +344,25 @@ def glyph_height_px(image: np.ndarray, polygon: list[list[int]]) -> float | None
     if ink_per_row.max() == 0:
         return None
 
-    # A row counts as ink if it carries at least a tenth of the busiest row.
-    # Lower than that is the tail of an antialiased edge, not a stroke.
-    threshold = max(1, ink_per_row.max() * 0.1)
+    # ── WHERE THE DESCENDERS ARE DROPPED ──────────────────────────────────
+    #
+    # A row counts as print only if a quarter of the busiest row's ink is in it.
+    #
+    # The reasoning is about how many characters contribute. Every character on
+    # a line puts ink in the rows between the cap line and the baseline, so
+    # those rows are dense. A descender — the tail of a `g`, a `y`, a `p` —
+    # is one character reaching below the baseline, so its rows carry a
+    # fourteenth of the ink of a fourteen-character line. A tenth, which this
+    # was, let those rows through: `Net Wt. 800 g` measured 5.28 mm against a
+    # true 4.0, a 32 per cent over-report, and over-reporting is the direction
+    # that clears a package Table-I should have failed.
+    #
+    # Measured against print of known height at 0.1, 0.2, 0.3, 0.4 and 0.5 of
+    # the peak: the descender is gone by 0.2 and every other line is unchanged
+    # all the way to 0.5. A quarter sits inside that plateau — clear of the
+    # descender, and not so high that a lightly-inked stroke at the top of a
+    # numeral is clipped off a real photograph.
+    threshold = max(1, ink_per_row.max() * 0.25)
     rows = np.flatnonzero(ink_per_row >= threshold)
 
     if rows.size == 0:

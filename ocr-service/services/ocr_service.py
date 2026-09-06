@@ -98,6 +98,7 @@ from services.image_preprocessing import (  # noqa: E402
     sharpen,
     upscale,
 )
+from services import measurement  # noqa: E402
 from utils import formatter  # noqa: E402
 
 logger = logging.getLogger("ocr-service")
@@ -645,7 +646,12 @@ def _extra_passes(
     return lines, used
 
 
-def read(data: bytes) -> dict[str, Any]:
+def read(
+    data: bytes,
+    *,
+    coin: str | None = None,
+    manual_mm_per_px: float | None = None,
+) -> dict[str, Any]:
     """
     The whole read: decode → correct → detect + recognise → structure.
 
@@ -664,10 +670,16 @@ def read(data: bytes) -> dict[str, Any]:
     # record. Held for the whole read, because a Paddle predictor may not be
     # called from two threads at once — see the note by the pool.
     with _checkout() as engine:
-        return _read_with(engine, image)
+        return _read_with(engine, image, coin=coin, manual_mm_per_px=manual_mm_per_px)
 
 
-def _read_with(engine: "Engine", image: PreparedImage) -> dict[str, Any]:
+def _read_with(
+    engine: "Engine",
+    image: PreparedImage,
+    *,
+    coin: str | None = None,
+    manual_mm_per_px: float | None = None,
+) -> dict[str, Any]:
     started = time.perf_counter()
 
     lines = _predict(engine, image)
@@ -702,6 +714,48 @@ def _read_with(engine: "Engine", image: PreparedImage) -> dict[str, Any]:
 
     lines = formatter.reading_order(lines)
 
+    # ── Millimetres, where the photograph carries a reference ──────────────
+    #
+    # Rule 7's Table-I is entirely in millimetres, and until something measured
+    # them every one of those checks resolved to "a person must do this". The
+    # scale comes from a marker, a coin or the inspector; where there is none,
+    # nothing is attached and the engine goes on saying what it said before.
+    #
+    # Attached per line rather than once for the image, because that is the
+    # granularity the rule works at: it is the height of *this declaration's*
+    # numerals that Table-I tests, not the average height of the panel.
+    scale = None
+    try:
+        scale = measurement.find_scale(
+            image.array, coin=coin, manual_mm_per_px=manual_mm_per_px
+        )
+    except Exception:  # noqa: BLE001
+        # A failure to measure is not a failure to read. The declarations are
+        # already in hand and the engine is designed to run without this.
+        logger.warning("scale detection failed; continuing without measurements", exc_info=True)
+
+    if scale is not None:
+        measured = 0
+        for line in lines:
+            polygon = line.get("polygon")
+            if not polygon:
+                continue
+            try:
+                found = measurement.measure_line(image.array, polygon, scale)
+            except Exception:  # noqa: BLE001
+                continue
+            if found:
+                line["measurements"] = found
+                measured += 1
+
+        logger.info(
+            "scale %s (%.4f mm/px): measured %d of %d lines",
+            scale.source,
+            scale.mm_per_px,
+            measured,
+            len(lines),
+        )
+
     scored = [line["confidence"] for line in lines if "confidence" in line]
 
     return {
@@ -722,6 +776,9 @@ def _read_with(engine: "Engine", image: PreparedImage) -> dict[str, Any]:
             "lineCount": len(lines),
             "meanConfidence": round(sum(scored) / len(scored), 4) if scored else None,
             "minConfidence": round(min(scored), 4) if scored else None,
+            # Absent where nothing could be measured, which is the honest signal
+            # that Rule 7 cannot be decided on this photograph.
+            "scale": scale.as_dict() if scale is not None else None,
         },
     }
 

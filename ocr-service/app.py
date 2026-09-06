@@ -31,11 +31,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from functools import partial
 import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
@@ -111,7 +112,11 @@ def health() -> dict[str, Any]:
 
 
 @app.post("/ocr")
-async def ocr(image: UploadFile = File(...)) -> JSONResponse:
+async def ocr(
+    image: UploadFile = File(...),
+    coin: str | None = Form(default=None),
+    mm_per_px: float | None = Form(default=None),
+) -> JSONResponse:
     """
     Reads one image.
 
@@ -158,7 +163,9 @@ async def ocr(image: UploadFile = File(...)) -> JSONResponse:
         # `run_in_threadpool` hands it to the same worker pool FastAPI uses for
         # sync handlers. Concurrency is then bounded by the engine pool inside
         # the service rather than by the loop.
-        result = await run_in_threadpool(ocr_service.read, data)
+        result = await run_in_threadpool(
+            partial(ocr_service.read, data, coin=coin, manual_mm_per_px=mm_per_px)
+        )
     except InvalidImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ocr_service.OCRUnavailableError as exc:

@@ -57,6 +57,7 @@ interface SidecarLine {
   confidence?: number;
   boundingBox?: { x: number; y: number; width: number; height: number };
   polygon?: number[][];
+  measurements?: { heightMm?: number; lineWidthMm?: number };
 }
 
 interface SidecarResponse {
@@ -199,6 +200,10 @@ export class PaddleOCRProvider implements OCRProvider {
           // turn an uncertain reading into a finding — see `DecisionEngine`.
           confidence: typeof entry.confidence === 'number' ? entry.confidence : undefined,
           boundingBox: toBBox(entry.boundingBox),
+          // Passed through exactly as the sidecar measured it, and absent where
+          // it could not measure. Same rule as the confidence above: an
+          // invented number here would reach Table-I as evidence.
+          measurements: entry.measurements,
           kind: 'LINE' as const,
           imageId: image.imageId,
         }));
