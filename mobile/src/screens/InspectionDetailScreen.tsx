@@ -20,6 +20,8 @@ import { colors, spacing } from '../constants/theme';
 import { useAsync } from '../hooks/useAsync';
 import { OfflineBar } from '../components/offline';
 import { loadInspection } from '../services/offlineReads';
+import { fieldsNeedingReview } from '../store/analysisStore';
+import { resumeInspection } from '../store/resume';
 import type { RootScreenProps } from '../navigation/types';
 import { formatConfidence, formatDateTime, formatDuration } from '../utils/format';
 
@@ -74,6 +76,11 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
 
   const { data: inspection, savedAt } = state.data;
   const analysis = inspection.analysis;
+
+  const finalized = inspection.status === 'finalized';
+  // Declarations the engine could not settle on its own. The same list the
+  // result screen names, so the count here and the count there agree.
+  const pending = fieldsNeedingReview(analysis ?? null);
 
   const tabs: Array<{ value: Tab; label: string; count?: number }> = [
     { value: 'summary', label: 'Summary' },
@@ -306,13 +313,43 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
             style={{ flex: 1 }}
             onPress={() => navigation.goBack()}
           />
-          <Button
-            title="Open Report"
-            icon="document-text-outline"
-            size="lg"
-            style={{ flex: 1.4 }}
-            onPress={() => navigation.navigate('ReportDetail', { inspectionId })}
-          />
+
+          {/*
+            ── THE WAY BACK IN ────────────────────────────────────────────
+            Home counts what is waiting — "Pending Reviews" — and opens the
+            records behind that number. Until now the trail stopped here: the
+            record opened read-only, with Close and Open Report, and no way to
+            do the review the tile had just sent the officer to do. The one
+            figure on the home screen that is a to-do list led nowhere.
+
+            An unfiled record therefore offers the work rather than the
+            document. Where declarations are still waiting it goes to the
+            review; where they are all settled it goes straight to filing,
+            because that is the only step left. A filed record keeps Open
+            Report, which is the only thing left to do with it.
+          */}
+          {finalized ? (
+            <Button
+              title="Open Report"
+              icon="document-text-outline"
+              size="lg"
+              style={{ flex: 1.4 }}
+              onPress={() => navigation.navigate('ReportDetail', { inspectionId })}
+            />
+          ) : (
+            <Button
+              title={pending.length > 0 ? `Review ${pending.length} left` : 'File this inspection'}
+              icon={pending.length > 0 ? 'create-outline' : 'checkmark-done-outline'}
+              size="lg"
+              style={{ flex: 1.4 }}
+              onPress={() => {
+                // The review flow reads the capture stores, and a record opened
+                // from History fills none of them. See `resumeInspection`.
+                resumeInspection(inspection);
+                navigation.navigate(pending.length > 0 ? 'Review' : 'Finalize');
+              }}
+            />
+          )}
         </Row>
       </ActionBar>
 
