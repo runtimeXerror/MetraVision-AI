@@ -1,0 +1,655 @@
+{
+  "recordedAt": "2026-09-04T15:02:06.504Z",
+  "provider": "paddleocr",
+  "providerVersion": "en_PP-OCRv5_mobile_rec/paddleocr-3.7.0",
+  "images": [
+    {
+      "rawText": "Vitamin B5\n10%\nMOISTURIZER\nwith copper, zinc, magnesium\n+ hyaluronic acid + betaine\nlightweight & oil free\nfor oily/combination skin\n50 g / 1.76 oz.\nMinimalist\nSKIN SCIENCE",
+      "regions": [
+        {
+          "text": "Vitamin B5",
+          "confidence": 0.9988,
+          "boundingBox": [
+            1497,
+            1079,
+            1921,
+            1184
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "10%",
+          "confidence": 0.9986,
+          "boundingBox": [
+            1765,
+            1184,
+            1929,
+            1276
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "MOISTURIZER",
+          "confidence": 0.9998,
+          "boundingBox": [
+            1546,
+            1348,
+            1927,
+            1413
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "with copper, zinc, magnesium",
+          "confidence": 0.9893,
+          "boundingBox": [
+            1184,
+            1409,
+            1933,
+            1491
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "+ hyaluronic acid + betaine",
+          "confidence": 0.9807,
+          "boundingBox": [
+            1253,
+            1475,
+            1933,
+            1550
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "lightweight & oil free",
+          "confidence": 0.9993,
+          "boundingBox": [
+            1378,
+            1589,
+            1929,
+            1665
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "for oily/combination skin",
+          "confidence": 0.9895,
+          "boundingBox": [
+            1309,
+            1657,
+            1929,
+            1735
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "50 g / 1.76 oz.",
+          "confidence": 0.9795,
+          "boundingBox": [
+            1563,
+            1782,
+            1925,
+            1866
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "Minimalist",
+          "confidence": 0.9998,
+          "boundingBox": [
+            1135,
+            3420,
+            1718,
+            3574
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        },
+        {
+          "text": "SKIN SCIENCE",
+          "confidence": 0.9981,
+          "boundingBox": [
+            1184,
+            3564,
+            1673,
+            3684
+          ],
+          "kind": "LINE",
+          "imageId": "img_front"
+        }
+      ],
+      "provider": "paddleocr",
+      "providerVersion": "en_PP-OCRv5_mobile_rec/paddleocr-3.7.0",
+      "processingTimeMs": 3453,
+      "imageSize": {
+        "width": 3072,
+        "height": 4096
+      },
+      "confidenceAvailable": true,
+      "languageHints": [
+        "en"
+      ],
+      "imageId": "img_front",
+      "sourceHash": "73b98cce1d811f82"
+    },
+    {
+      "rawText": "M\n1060600942\nHideNothing.\nMOISTURIZER\nHero Ingredient\nVitamin B5 (BASF, Germany)\n:\nFree From\nFragrance, Parabens, Sulfates,\nDyes, Essential Oils\nTests Done\nDermatologically Tested\npH\nNA\nDirections For Use\nabsorbed.\nWarnings\ncool & dry place.\nIngredients\nWater/Aqua, Cyclopentasiloxane, Panthenol, PEG/PPG-18/18\nXlitylglucoside, Anhydroxylitol, Xylitol, Magnesium Aspartate, Zinc\nGluconate, Pentylene Glycol, Magnesium Sulphate Heptahydrate,\nPhenoxyethanol, Hydroxyethyl Acrylate/Sodium Acryloyldimethyl\nTaurate Copolymer, Carbomer, Ethylhexylglycerin\nManufactured By\nL.B.C.P., Unit II, Haridwar, Uttarakhand, India - 249403,\nML No.: 16/C/UA/2010.\nCountry of Origin: India\nMarketed By\nUprising Science Pvt. Ltd., F-2109, RIICO Ind. Area, Ramchandrapura,\nJaipur - 302022, Rajasthan, India.\nFor Consumer Complaints / Queries\nAddress: Same as Marketed By Address\nMobile : +91 97723 46555\nEmail ID : help@beminimalist.co\nProduct Information:\nFor the manufacturing date, batch no. & Use before date-\nrefer to the crimp\nFor MRP, refer to the carton\ne\nNet weight: 50 g / 1.76 oz.",
+      "regions": [
+        {
+          "text": "M",
+          "confidence": 0.9793,
+          "boundingBox": [
+            1571,
+            260,
+            1628,
+            322
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "1060600942",
+          "confidence": 0.6531,
+          "boundingBox": [
+            1935,
+            403,
+            2232,
+            463
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "HideNothing.",
+          "confidence": 0.9985,
+          "boundingBox": [
+            932,
+            1225,
+            1376,
+            1327
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "MOISTURIZER",
+          "confidence": 0.9998,
+          "boundingBox": [
+            940,
+            1346,
+            1286,
+            1407
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Hero Ingredient",
+          "confidence": 0.9996,
+          "boundingBox": [
+            950,
+            1448,
+            1251,
+            1505
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Vitamin B5 (BASF, Germany)",
+          "confidence": 0.9967,
+          "boundingBox": [
+            1370,
+            1452,
+            1886,
+            1511
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": ":",
+          "confidence": 0.9642,
+          "boundingBox": [
+            1278,
+            1468,
+            1298,
+            1489
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Free From",
+          "confidence": 0.9998,
+          "boundingBox": [
+            948,
+            1499,
+            1145,
+            1552
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Fragrance, Parabens, Sulfates,",
+          "confidence": 0.9955,
+          "boundingBox": [
+            1368,
+            1501,
+            1919,
+            1561
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Dyes, Essential Oils",
+          "confidence": 0.9824,
+          "boundingBox": [
+            1370,
+            1548,
+            1729,
+            1604
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Tests Done",
+          "confidence": 0.9999,
+          "boundingBox": [
+            950,
+            1602,
+            1155,
+            1651
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Dermatologically Tested",
+          "confidence": 0.9959,
+          "boundingBox": [
+            1366,
+            1597,
+            1815,
+            1657
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "pH",
+          "confidence": 0.9968,
+          "boundingBox": [
+            948,
+            1655,
+            1018,
+            1710
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "NA",
+          "confidence": 0.9998,
+          "boundingBox": [
+            1364,
+            1645,
+            1442,
+            1698
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Directions For Use",
+          "confidence": 0.9852,
+          "boundingBox": [
+            940,
+            1763,
+            1286,
+            1825
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "absorbed.",
+          "confidence": 0.9997,
+          "boundingBox": [
+            940,
+            1917,
+            1124,
+            1978
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Warnings",
+          "confidence": 0.9998,
+          "boundingBox": [
+            944,
+            1999,
+            1118,
+            2052
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "cool & dry place.",
+          "confidence": 0.9729,
+          "boundingBox": [
+            946,
+            2097,
+            1237,
+            2159
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Ingredients",
+          "confidence": 0.9998,
+          "boundingBox": [
+            944,
+            2173,
+            1151,
+            2236
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Water/Aqua, Cyclopentasiloxane, Panthenol, PEG/PPG-18/18",
+          "confidence": 0.9718,
+          "boundingBox": [
+            942,
+            2218,
+            2011,
+            2292
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Xlitylglucoside, Anhydroxylitol, Xylitol, Magnesium Aspartate, Zinc",
+          "confidence": 0.971,
+          "boundingBox": [
+            946,
+            2370,
+            2111,
+            2451
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Gluconate, Pentylene Glycol, Magnesium Sulphate Heptahydrate,",
+          "confidence": 0.9719,
+          "boundingBox": [
+            948,
+            2419,
+            2087,
+            2503
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Phenoxyethanol, Hydroxyethyl Acrylate/Sodium Acryloyldimethyl",
+          "confidence": 0.9881,
+          "boundingBox": [
+            948,
+            2474,
+            2081,
+            2554
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Taurate Copolymer, Carbomer, Ethylhexylglycerin",
+          "confidence": 0.9871,
+          "boundingBox": [
+            952,
+            2531,
+            1833,
+            2595
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Manufactured By",
+          "confidence": 0.9912,
+          "boundingBox": [
+            956,
+            2621,
+            1251,
+            2671
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "L.B.C.P., Unit II, Haridwar, Uttarakhand, India - 249403,",
+          "confidence": 0.9541,
+          "boundingBox": [
+            950,
+            2666,
+            1915,
+            2730
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "ML No.: 16/C/UA/2010.",
+          "confidence": 0.9891,
+          "boundingBox": [
+            952,
+            2724,
+            1333,
+            2777
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Country of Origin: India",
+          "confidence": 0.9763,
+          "boundingBox": [
+            956,
+            2777,
+            1348,
+            2832
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Marketed By",
+          "confidence": 0.9981,
+          "boundingBox": [
+            954,
+            2859,
+            1171,
+            2916
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Uprising Science Pvt. Ltd., F-2109, RIICO Ind. Area, Ramchandrapura,",
+          "confidence": 0.9474,
+          "boundingBox": [
+            956,
+            2910,
+            2111,
+            2980
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Jaipur - 302022, Rajasthan, India.",
+          "confidence": 0.9812,
+          "boundingBox": [
+            958,
+            2963,
+            1536,
+            3029
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "For Consumer Complaints / Queries",
+          "confidence": 0.9861,
+          "boundingBox": [
+            956,
+            3041,
+            1604,
+            3111
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Address: Same as Marketed By Address",
+          "confidence": 0.9988,
+          "boundingBox": [
+            956,
+            3092,
+            1667,
+            3168
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Mobile : +91 97723 46555",
+          "confidence": 0.956,
+          "boundingBox": [
+            958,
+            3148,
+            1419,
+            3213
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Email ID : help@beminimalist.co",
+          "confidence": 0.9694,
+          "boundingBox": [
+            958,
+            3197,
+            1499,
+            3273
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Product Information:",
+          "confidence": 0.9988,
+          "boundingBox": [
+            958,
+            3287,
+            1319,
+            3365
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "For the manufacturing date, batch no. & Use before date-",
+          "confidence": 0.9573,
+          "boundingBox": [
+            954,
+            3336,
+            1976,
+            3430
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "refer to the crimp",
+          "confidence": 0.9783,
+          "boundingBox": [
+            963,
+            3389,
+            1239,
+            3463
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "For MRP, refer to the carton",
+          "confidence": 0.9934,
+          "boundingBox": [
+            961,
+            3437,
+            1434,
+            3525
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "e",
+          "confidence": 0.9218,
+          "boundingBox": [
+            1614,
+            3553,
+            1880,
+            3690
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        },
+        {
+          "text": "Net weight: 50 g / 1.76 oz.",
+          "confidence": 0.9677,
+          "boundingBox": [
+            963,
+            3588,
+            1485,
+            3703
+          ],
+          "kind": "LINE",
+          "imageId": "img_back"
+        }
+      ],
+      "provider": "paddleocr",
+      "providerVersion": "en_PP-OCRv5_mobile_rec/paddleocr-3.7.0",
+      "processingTimeMs": 6571,
+      "imageSize": {
+        "width": 3072,
+        "height": 4096
+      },
+      "confidenceAvailable": true,
+      "languageHints": [
+        "en"
+      ],
+      "imageId": "img_back",
+      "sourceHash": "e1ba0ca79cd71f3f"
+    }
+  ]
+}

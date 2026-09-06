@@ -1,0 +1,21 @@
+{
+  "package": "Brand Product Name, 000 g — describe the package here",
+  "category": "packaged_food",
+  "images": [
+    { "file": "front.jpg", "face": "FRONT" },
+    { "file": "back.jpg", "face": "BACK" }
+  ],
+  "fields": {
+    "brand": "",
+    "commodity_name": "",
+    "net_quantity": "",
+    "mrp": null,
+    "manufacturing_date": null,
+    "manufacturer": { "contains": [] },
+    "consumer_care": { "contains": [] },
+    "country_of_origin": "India"
+  },
+  "declaredElsewhere": [],
+  "mustNotViolate": [],
+  "notes": "Why this package is in the corpus and what is unusual about it. Folders starting with _ are ignored, so copy this one rather than editing it."
+}

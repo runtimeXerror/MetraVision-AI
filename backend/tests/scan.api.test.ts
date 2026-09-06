@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Inspection } from '../src/models/Inspection';
 import { ComplianceEvaluation } from '../src/models/ComplianceEvaluation';
 import * as ocr from '../src/services/ocr';
-import { FailingOCRProvider } from '../src/services/ocr';
+import { FailingOCRProvider, mockProviderFor } from '../src/services/ocr';
+import { captureCompletenessFor } from '../src/services/scan';
 import * as scanService from '../src/services/scan/scanService';
 import { ApiError } from '../src/utils/ApiError';
 
@@ -405,11 +406,16 @@ describe('POST /api/inspections/:id/scan — scanning images already on record',
 
     const id = create.body.data.inspectionId as string;
 
+    // A different face each time, which is what the capture flow asks an
+    // inspector for. Capture completeness counts faces, so four photographs of
+    // one panel is not the same evidence as four photographs of four.
+    const faces = ['FRONT', 'BACK', 'SIDE', 'ADDITIONAL'] as const;
+
     for (let index = 0; index < images; index += 1) {
       await request(app)
         .post(`/api/inspections/${id}/images`)
         .set('Authorization', session.auth)
-        .field('type', index === 0 ? 'FRONT' : 'BACK')
+        .field('type', faces[index % faces.length]!)
         .attach('image', PNG_BYTES, `face-${index}.png`)
         .expect(201);
     }
@@ -488,6 +494,171 @@ describe('POST /api/inspections/:id/scan — scanning images already on record',
     const after = await Inspection.findOne({ inspectionId: id });
     expect(after?.status).not.toBe('PROCESSING');
     expect(after?.images.length).toBe(1);
+  });
+
+  it('refuses a second scan while the first is still running', async () => {
+    const id = await captured(1);
+
+    // What the record looks like for the seconds a scan is in flight. A second
+    // scan starting here used to run to completion and then fail to save,
+    // because the first had already moved the document version on — and the
+    // inspector was shown INTERNAL_ERROR for it.
+    await Inspection.updateOne({ inspectionId: id }, { $set: { status: 'PROCESSING' } });
+
+    const response = await request(app)
+      .post(`/api/inspections/${id}/scan`)
+      .set('Authorization', session.auth)
+      .send({ inspectionDate: SCAN_DATE, mockFixture: 'compliant' })
+      .expect(409);
+
+    expect(response.body.errorCode).toBe('SCAN_IN_PROGRESS');
+  });
+
+  it('takes over a record left in PROCESSING by a scan that never finished', async () => {
+    const id = await captured(1);
+
+    // A process killed mid-scan leaves this behind. The lock has to expire, or
+    // the record could never be scanned again.
+    await Inspection.updateOne(
+      { inspectionId: id },
+      { $set: { status: 'PROCESSING', updatedAt: new Date(Date.now() - 60 * 60 * 1000) } },
+      { timestamps: false },
+    );
+
+    const response = await request(app)
+      .post(`/api/inspections/${id}/scan`)
+      .set('Authorization', session.auth)
+      .send({ inspectionDate: SCAN_DATE, mockFixture: 'compliant' })
+      .expect(200);
+
+    expect(response.body.data.scan.legal.status).toBe('COMPLIANT');
+  });
+
+  it('reports on the faces it could read when one photograph fails', async () => {
+    const id = await captured(4);
+
+    /**
+     * One face the OCR cannot get through, three it can.
+     *
+     * This is the failure an inspector actually meets: a curved bottle or a
+     * dark MRP box runs past `OCR_TIMEOUT_MS` while the other faces read in
+     * seconds. It used to sink the whole scan — three good reads discarded,
+     * and "Analysis could not be completed" on a package that had been
+     * photographed properly.
+     */
+    let seen = 0;
+    const flaky = mockProviderFor('compliant');
+    vi.spyOn(ocr, 'ocrProvider', 'get').mockReturnValue({
+      ...flaky,
+      name: flaky.name,
+      version: flaky.version,
+      isConfigured: () => true,
+      configurationHint: () => null,
+      extractText: async (image) => {
+        seen += 1;
+        if (seen === 2) {
+          throw new ApiError(504, 'OCR_TIMEOUT', 'The OCR service did not respond within 45 seconds.');
+        }
+        return flaky.extractText(image);
+      },
+    });
+
+    const response = await request(app)
+      .post(`/api/inspections/${id}/scan`)
+      .set('Authorization', session.auth)
+      .send({ inspectionDate: SCAN_DATE })
+      .expect(200);
+
+    const dto = response.body.data;
+
+    // The report exists, and it rests on the three faces that were read.
+    expect(dto.scan.ocr.imageIds.length).toBe(3);
+    expect(dto.scan.ocr.unread.length).toBe(1);
+    expect(dto.scan.ocr.unread[0].code).toBe('OCR_TIMEOUT');
+
+    // The inspector is told, rather than left to wonder why a declaration on
+    // the missing face is absent from the report.
+    expect(dto.aiAnalysis.warnings[0]).toMatch(/1 of 4 photographs could not be read/);
+
+    // And the engine was told the package was less completely captured than
+    // four photographs would imply — this is what keeps an unread face from
+    // becoming a missing declaration.
+    expect(dto.scan.captureCompleteness).toBe(captureCompletenessFor(3));
+
+    const after = await Inspection.findOne({ inspectionId: id });
+    expect(after?.status).not.toBe('PROCESSING');
+  });
+
+  it('fails the scan only when no photograph at all could be read', async () => {
+    const id = await captured(3);
+
+    vi.spyOn(ocr, 'ocrProvider', 'get').mockReturnValue(
+      new FailingOCRProvider(new ApiError(504, 'OCR_TIMEOUT', 'The OCR service did not respond.')),
+    );
+
+    const response = await request(app)
+      .post(`/api/inspections/${id}/scan`)
+      .set('Authorization', session.auth)
+      .send({ inspectionDate: SCAN_DATE })
+      .expect(504);
+
+    // The reason survives: OCR_TIMEOUT and OCR_SERVICE_DOWN send an inspector
+    // to two different places.
+    expect(response.body.errorCode).toBe('SCAN_FAILED');
+    expect(response.body.details.cause).toBe('OCR_TIMEOUT');
+    expect(response.body.details.retryable).toBe(true);
+
+    const after = await Inspection.findOne({ inspectionId: id });
+    expect(after?.status).toBe('DRAFT');
+    expect(after?.scan).toBeUndefined();
+  });
+
+  it('does not accuse a trader on three photographs of one panel', async () => {
+    const create = await request(app)
+      .post('/api/inspections')
+      .set('Authorization', session.auth)
+      .send({
+        business: { name: 'Smart Bazar' },
+        location: { address: 'MG Road, Pune' },
+        productCategory: 'cosmetic',
+      })
+      .expect(201);
+
+    const id = create.body.data.inspectionId as string;
+
+    // What an inspector does with a small curved bottle: three goes at the
+    // same panel, trying to get the print in focus. Counted as photographs
+    // that was 0.85 capture completeness, past the engine's floor, and every
+    // declaration printed on a face nobody had photographed came back as a
+    // violation. It is one face of evidence, and three attempts at it.
+    for (let index = 0; index < 3; index += 1) {
+      await request(app)
+        .post(`/api/inspections/${id}/images`)
+        .set('Authorization', session.auth)
+        .field('type', 'FRONT')
+        .attach('image', PNG_BYTES, `attempt-${index}.png`)
+        .expect(201);
+    }
+
+    const response = await request(app)
+      .post(`/api/inspections/${id}/scan`)
+      .set('Authorization', session.auth)
+      .send({ inspectionDate: SCAN_DATE, mockFixture: 'missing_declarations' })
+      .expect(200);
+
+    const dto = response.body.data;
+
+    expect(dto.scan.captureCompleteness).toBe(captureCompletenessFor(1));
+    expect(dto.scan.evidence?.facesCaptured ?? dto.scan.legal.status).toBeDefined();
+
+    // A declaration that was not found is a question for the inspector, not a
+    // finding against the trader.
+    expect(dto.scan.legal.status).not.toBe('VIOLATION_DETECTED');
+    expect(
+      dto.scan.legal.issues.filter(
+        (issue: { classification: string }) => issue.classification === 'POTENTIAL_VIOLATION',
+      ),
+    ).toHaveLength(0);
   });
 
   it('will not scan another inspector’s record', async () => {

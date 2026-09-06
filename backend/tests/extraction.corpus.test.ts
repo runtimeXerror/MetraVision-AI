@@ -63,6 +63,7 @@ function label(lines: string[]): AggregateOCRResult {
     ],
     processingTimeMs: 1,
     confidenceAvailable: true,
+    unread: [],
   };
 }
 

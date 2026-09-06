@@ -368,26 +368,27 @@ export function ImageThumb({
 }
 
 /**
- * ── WHAT THE SCAN ACTUALLY FOUND, IN THREE NUMBERS ──────────────────────────
+ * ── THE SCORE, AND WHAT IT IS A SCORE OF ────────────────────────────────────
  *
- * The verdict panel above says what the package *is* — compliant, in
- * contravention, or a question for a person. It does not say how much was
- * examined to get there, and those are different claims. "Violation" carried by
- * two readable declarations out of eleven is a much weaker document than the
- * same verdict carried by all eleven, and an officer standing in front of a
- * dealer is entitled to see which one they are holding before they say it out
- * loud.
+ * A percentage was here once, printed bare — "67%" beside a verdict — and it was
+ * removed because nobody could say what it was 67% *of*. It is back, because an
+ * officer looking at VIOLATION DETECTED reasonably wants to know how much of the
+ * package was in order, and a count alone does not answer that.
  *
- * So: how many declarations were read off the label, how many rule checks
- * passed, and how many failed. The bar underneath is the same three counts as
- * proportions, because "3 of 19" is a fact and the width of the red band is
- * what the eye actually reads.
+ * What makes it safe this time is that it never appears alone. Each percentage
+ * carries the fraction it came from, on the same line:
  *
- * Checks that did not apply to this commodity are excluded from the bar and
- * stated in the footnote instead. Folding them into the passes would inflate
- * the compliant share with rules the package was never subject to — a number
- * that looks like an assessment and is not one.
- * ────────────────────────────────────────────────────────────────────────────
+ *     Compliant        67%     4 of 6 checks
+ *     Not compliant    33%     2 of 6 checks
+ *
+ * so the denominator is visible rather than assumed. And the denominator is the
+ * checks the engine actually decided — a rule that does not apply to this
+ * commodity is not a pass, and folding those in would drag every package toward
+ * the same figure and make the number describe the rule book rather than the
+ * packet. What was excluded is stated underneath rather than dropped silently.
+ *
+ * The bar is the same two figures as widths, because "4 of 6" is a fact and the
+ * width of the red band is what the eye actually reads.
  */
 export function ComplianceTally({ analysis }: { analysis: AIAnalysis }) {
   const fields = analysis.fields;
@@ -396,88 +397,83 @@ export function ComplianceTally({ analysis }: { analysis: AIAnalysis }) {
   // Mirrors `effectiveValue`: an inspector who marked a declaration absent has
   // overruled whatever the camera thought it saw, and that field was not read.
   const read = fields.filter((field) => {
-    if (field.reviewAction === 'marked_unavailable') return null;
+    if (field.reviewAction === 'marked_unavailable') return false;
     const value = field.humanValue ?? field.aiValue;
     return value !== null && value !== undefined && value.trim() !== '';
   }).length;
 
   const passed = checks.filter((check) => check.result === 'pass').length;
   const failed = checks.filter((check) => check.result === 'fail').length;
-  const advisory = checks.filter((check) => check.result === 'warning').length;
+  const review = checks.filter((check) => check.result === 'warning').length;
   const notApplicable = checks.filter((check) => check.result === 'not_applicable').length;
 
-  const assessed = passed + failed + advisory;
-
+  const decided = passed + failed + review;
   return (
     <Card style={{ marginTop: spacing.md }}>
-      <Row gap={spacing.sm} align="stretch">
-        <TallyCell
-          value={`${read}/${fields.length}`}
-          label="Declarations read"
-          tone={read === fields.length ? 'success' : 'neutral'}
-          icon="scan-outline"
-        />
-        <TallyCell value={passed} label="Compliant" tone="success" icon="checkmark-circle-outline" />
-        <TallyCell
-          value={failed}
-          label="Non-compliant"
-          tone={failed > 0 ? 'danger' : 'neutral'}
-          icon="close-circle-outline"
-        />
-      </Row>
+      <ScoreRow label="Compliant" count={passed} total={decided} tone="success" />
+      <ScoreRow label="Not compliant" count={failed} total={decided} tone="danger" />
+      {review > 0 ? (
+        <ScoreRow label="Needs review" count={review} total={decided} tone="warning" />
+      ) : null}
 
-      {assessed > 0 ? (
+      {decided > 0 ? (
         <View style={styles.tallyBar}>
-          {passed > 0 ? (
-            <View style={{ flex: passed, backgroundColor: colors.success }} />
-          ) : null}
-          {advisory > 0 ? (
-            <View style={{ flex: advisory, backgroundColor: colors.warning }} />
-          ) : null}
+          {passed > 0 ? <View style={{ flex: passed, backgroundColor: colors.success }} /> : null}
+          {review > 0 ? <View style={{ flex: review, backgroundColor: colors.warning }} /> : null}
           {failed > 0 ? <View style={{ flex: failed, backgroundColor: colors.danger }} /> : null}
         </View>
       ) : null}
 
       <Txt variant="caption" color={colors.textMuted} style={{ marginTop: spacing.sm }}>
-        {assessed === 0
-          ? 'No rule check could be applied to this record.'
-          : `${pluralize(assessed, 'rule check')} applied` +
-            (advisory > 0 ? ` · ${advisory} advisory` : '') +
-            (notApplicable > 0 ? ` · ${notApplicable} not applicable to this commodity` : '')}
+        {read} of {fields.length} declarations read
+        {notApplicable > 0 ? ` · ${notApplicable} rules did not apply to this product` : ''}
       </Txt>
+
+      {/* Kept out of the percentages above, and said rather than dropped. A
+          score that counted rules the package was never subject to would be a
+          score of the rule book. */}
+      {decided === 0 ? (
+        <Txt variant="caption" color={colors.warning} style={{ marginTop: 2 }}>
+          No rule could be decided on this evidence.
+        </Txt>
+      ) : null}
     </Card>
   );
 }
 
-function TallyCell({
-  value,
+/** One line of the score: the label, the share, and the fraction behind it. */
+function ScoreRow({
   label,
+  count,
+  total,
   tone,
-  icon,
 }: {
-  value: number | string;
   label: string;
-  tone: 'success' | 'danger' | 'neutral';
-  icon: keyof typeof Ionicons.glyphMap;
+  count: number;
+  total: number;
+  tone: 'success' | 'danger' | 'warning';
 }) {
-  const fg = toneColors[tone].fg;
+  const share = total === 0 ? 0 : Math.round((count / total) * 100);
 
   return (
-    <View style={styles.tallyCell}>
-      <Ionicons name={icon} size={15} color={fg} />
-      {/* The number carries the tone, the label stays neutral. Colouring both
-          turns a count into an alarm, and two of these three are ordinary. */}
-      <Txt variant="title" color={fg} style={{ marginTop: 4 }}>
-        {value}
+    <Row justify="space-between" align="center" gap={spacing.sm} style={{ paddingVertical: 5 }}>
+      <Row gap={spacing.sm} align="center" style={{ flex: 1 }}>
+        <View style={[styles.scoreDot, { backgroundColor: toneColors[tone].fg }]} />
+        <Txt variant="body">{label}</Txt>
+      </Row>
+      <Txt variant="bodyStrong" color={toneColors[tone].fg}>
+        {share}%
       </Txt>
-      <Txt variant="caption" color={colors.textMuted} numberOfLines={2} style={{ marginTop: 2 }}>
-        {label}
+      {/* The fraction, always. This is what stops the percentage being a grade:
+          "33%" of two checks and of two hundred are different statements. */}
+      <Txt variant="caption" color={colors.textMuted} style={{ width: 74, textAlign: 'right' }}>
+        {count} of {total}
       </Txt>
-    </View>
+    </Row>
   );
 }
 
-/** One row of the image-quality report. */
+/** One row of the image-quality report. *//** One row of the image-quality report. */
 export function QualityRow({ label, rating }: { label: string; rating: QualityRating }) {
   return (
     <Row justify="space-between" style={{ paddingVertical: spacing.md }}>
@@ -550,21 +546,44 @@ export function ExtractedFieldCard({
 
   return (
     <Card style={[{ marginBottom: spacing.sm }, style]}>
-      <Row justify="space-between" align="flex-start">
-        <Txt variant="overline" color={colors.textFaint} style={{ flex: 1 }}>
-          {field.label}
-          {field.required ? ' · Required' : ''}
-        </Txt>
-        {field.aiValue !== null ? <ConfidencePill confidence={field.confidence} /> : null}
-      </Row>
+      {/*
+        ── THE NAME, THEN THE VALUE ──────────────────────────────────────
+        The declaration and what was read of it, on one line, the way a label
+        reads: `Maximum retail price      ₹398.00`. It was stacked — a small
+        grey caption, then the value on the line below — which is how a form
+        presents an input and not how a record presents a fact. Twelve of those
+        is a column of headings with the answers hiding between them.
 
-      <Txt
-        variant="heading"
-        color={missing ? colors.danger : colors.text}
-        style={{ marginTop: spacing.xs }}
-      >
-        {missing ? 'Not declared' : displayValue}
-      </Txt>
+        The value keeps the visual weight, because that is what is being
+        checked against the packet.
+      */}
+      <Row justify="space-between" align="flex-start" gap={spacing.md}>
+        <View style={{ flex: 1 }}>
+          <Txt variant="body" color={colors.textMuted}>
+            {field.label}
+          </Txt>
+          {field.required ? (
+            <Txt variant="caption" color={colors.textFaint} style={{ marginTop: 1 }}>
+              Mandatory
+            </Txt>
+          ) : null}
+        </View>
+
+        <View style={{ flex: 1.1, alignItems: 'flex-end' }}>
+          <Txt
+            variant="bodyStrong"
+            color={missing ? colors.danger : colors.text}
+            style={{ textAlign: 'right' }}
+          >
+            {missing ? 'Not declared' : displayValue}
+          </Txt>
+          {field.aiValue !== null ? (
+            <View style={{ marginTop: 4 }}>
+              <ConfidencePill confidence={field.confidence} />
+            </View>
+          ) : null}
+        </View>
+      </Row>
 
       {corrected ? (
         <View style={styles.provenance}>
@@ -1022,14 +1041,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 1,
   },
-  tallyCell: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: 4,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceAlt,
-  },
+  scoreDot: { width: 8, height: 8, borderRadius: radius.pill },
   /**
    * The proportion bar.
    *

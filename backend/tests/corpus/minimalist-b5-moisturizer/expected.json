@@ -1,0 +1,26 @@
+{
+  "package": "Minimalist Vitamin B5 10% Moisturizer, 50 g",
+  "category": "cosmetic",
+  "inspectionDate": "2026-09-04",
+  "images": [
+    { "file": "front.jpg", "face": "FRONT" },
+    { "file": "back.jpg", "face": "BACK" }
+  ],
+  "fields": {
+    "brand": "Minimalist",
+    "commodity_name": "Moisturizer",
+    "net_quantity": "50 g",
+    "country_of_origin": "India",
+    "manufacturer": { "contains": ["L.B.C.P.", "Haridwar", "249403"] },
+    "consumer_care": { "contains": ["help@beminimalist.co"] },
+    "ingredients": { "contains": ["Water/Aqua", "Panthenol", "Glycerin"] },
+    "mrp": null,
+    "unit_sale_price": null,
+    "manufacturing_date": null,
+    "best_before": null,
+    "batch_number": null
+  },
+  "declaredElsewhere": ["mrp", "manufacturing_date", "best_before", "batch_number"],
+  "mustNotViolate": ["mrp", "manufacturing_date", "best_before", "batch_number"],
+  "notes": "Tube inside a carton, photographed on its side. MRP is on the carton and the dates and batch are stamped on the crimp, and the label says so in two wrapped sentences. Front panel carries the brand and the commodity name; the back carries everything else. The reason this package is case one: read naively it produced three violations against a compliant product."
+}

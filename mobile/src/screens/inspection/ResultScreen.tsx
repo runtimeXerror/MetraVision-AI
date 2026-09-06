@@ -142,49 +142,17 @@ export function ResultScreen() {
       <Body>
         <VerdictPanel status={compliance.status} ruleSetLabel={compliance.ruleSetLabel} />
 
-        {/* The counts the removed percentage was standing in for. See the note
-            at `VerdictPanel` — "67%" could not say what it was 67% of, and
-            these three numbers can. */}
+        {/* The verdict, then how much of the package was in order. Two blocks,
+            and nothing between them: everything that used to sit here said one
+            of those two things again in a different shape. */}
         <ComplianceTally analysis={analysis} />
 
-        {/* The four-count strip that stood here — Passed, Findings, To review,
-            Checks — said the same thing as the tally above it, in a second
-            visual language, immediately below. Two summaries of one scan stacked
-            on each other is not twice the information; it is the reader having
-            to work out whether they disagree. */}
-
-        {/*
-          The one thing on this screen that is an instruction rather than a
-          statement, so it is the only thing styled as one.
-        */}
-        {/*
-          ── WHICH DECLARATIONS, NOT HOW MANY ────────────────────────────
-
-          This was a banner reading "Your review is needed — 3 declarations
-          could not be read confidently enough to stand alone", and then a
-          chevron into a flow that shows them one at a time. An officer could
-          not see what they were being asked about until they were already
-          inside it, and could not tell a two-second job (confirm an MRP that
-          is plainly right) from a real one (a date that needs the packet
-          turning over) before committing to it.
-
-          So the declarations are named here. Each row is what the recogniser
-          read and how sure it was, which is exactly the material the decision
-          turns on, and each opens the review at that field. The count is in the
-          heading where a count belongs.
-        */}
+        {/* The one instruction on a page of statements. Folded, because on a
+            label with eight declarations awaiting review the open list pushed
+            the verdict off the screen — but the heading is always visible,
+            because an officer about to finalize has to know work is waiting. */}
         {pending.length > 0 ? (
           <View style={styles.reviewBlock}>
-            {/*
-              Folded, and it is the *list* that folds rather than the cards
-              below it.
-
-              The heading is the part that has to be seen — an officer must know
-              at a glance that three declarations are waiting, on a screen they
-              may be about to finalize from. Which three is the detail, and on a
-              label with eight of them the open list pushed the verdict and the
-              declarations off the screen entirely.
-            */}
             <Pressable
               onPress={() => setReviewOpen((current) => !current)}
               accessibilityRole="button"
@@ -257,39 +225,11 @@ export function ResultScreen() {
           />
         ) : null}
 
-        {/*
-          ── WHY THIS IS NO LONGER CALLED "SCAN DETAILS" ─────────────────
-
-          It never was. Under that heading sat the product category, the
-          product name and the origin — none of which is a detail of the scan.
-          The category is what the inspector selected (or what the commodity
-          nouns on the label classified it as), and it is the single most
-          consequential value on this screen: it decides which rules reach the
-          package at all. Filing it under a machine heading, between the mean
-          confidence and the processing time, buried it.
-
-          What was actually about the scan has gone, because each part of it
-          was already said better somewhere else on the page:
-
-            · mean confidence — an average across a whole label. The figure an
-              officer can act on is per-declaration, and it is on every
-              declaration card and in the report's Source column.
-            · processing time and photographs read — facts about the run. They
-              are on the filed record, which is where somebody auditing the run
-              looks.
-            · rule set — the verdict panel already says "Assessed against
-              LM-PC-2026-05-29", four lines above this.
-            · not-applicable count — the tally under the verdict now names it.
-
-          What is left is what was examined. It keeps a chevron because an
-          officer who selected the category themselves does not need it read
-          back to them; it is here to be checked, not announced.
-        */}
-        <Disclosure
-          title="Commodity examined"
-          icon="cube-outline"
-          style={{ marginTop: spacing.md }}
-        >
+        {/* What was examined, folded: an officer who chose the category does
+            not need it read back to them. Everything that was genuinely about
+            the *scan* — mean confidence, processing time, rule set version —
+            has gone, each of it already said better elsewhere on the page. */}
+        <Disclosure title="Product" icon="cube-outline" style={{ marginTop: spacing.md }}>
           <Detail label="Category" value={productCategoryLabels[analysis.category]} />
           {details.productName ? <Detail label="Product" value={details.productName} /> : null}
           {/* Imported packages carry declarations domestic ones do not — rule
@@ -298,24 +238,12 @@ export function ResultScreen() {
           <Detail label="Origin" value={analysis.origin === 'imported' ? 'Imported' : 'Domestic'} />
         </Disclosure>
 
-        {/*
-          Out of the disclosure and onto the page.
-
-          This is not a statistic, it is the one instruction the screening
-          cannot carry out for the officer: a type-height rule needs the print
-          measured in millimetres against the packet, and no photograph can give
-          that. Folded away it was a requirement of rule 7 that nobody saw —
-          and this screen's own rule is that a warning behind a chevron is a
-          warning nobody sees.
-        */}
-        {scan && scan.summary.pendingCapability > 0 ? (
-          <Notice
-            tone="warning"
-            icon="resize-outline"
-            text={`${pluralize(scan.summary.pendingCapability, 'check')} need the printed text measured in millimetres against the package — a photograph alone cannot settle the type height required by rule 7.`}
-            style={{ marginTop: spacing.md }}
-          />
-        ) : null}
+        {/* The type-height notice that stood here is gone from the result.
+            It is a standing limitation of the screening rather than a finding
+            about this package — the same sentence on every scan — and printed
+            in amber beside the verdict it read as though something were wrong
+            with this packet. It belongs with the rule checks it concerns, where
+            it appears against the two rules it is actually about. */}
 
         {compliance.warnings.length > 0 ? (
           <Disclosure

@@ -117,10 +117,6 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
             analysis.compliance.ruleSetLabel,
           )}</div>
         </div>
-        <div style="text-align:right">
-          <div class="label">Compliance score</div>
-          <div class="score">${analysis.compliance.score}%</div>
-        </div>
       </div>`);
   } else {
     sections.push(
@@ -199,7 +195,29 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
       }
     }
 
+    /*
+     * ── SIXTEEN ROWS, TEN OF THEM SAYING NOTHING ────────────────────────
+     *
+     * A filed report listed every field the extractor knows about, so a talcum
+     * powder carried rows for Dimensions, Vegetarian mark, Genetically modified
+     * declaration, Importer, Packer, Expiry date and FSSAI licence — each one
+     * "Not declared", each one with no result beside it, because no rule asked
+     * about them for this commodity.
+     *
+     * Ten rows of nothing is not thoroughness. It buries the six that matter,
+     * and on a document served on a dealer a column of "Not declared" reads as
+     * an accusation about declarations the package was never required to carry.
+     *
+     * A row earns its place if the rule engine had something to say about it,
+     * or the package carries a value for it, or it is mandatory for this
+     * commodity — which is exactly the set an officer is checking.
+     */
     const rows = analysis.fields
+      .filter((field) => {
+        if (field.required) return true;
+        if (effectiveValue(field) !== null) return true;
+        return resultByField.has(field.key);
+      })
       .map((field, index) => {
         const recorded = effectiveValue(field);
         const amended = amendment?.fieldValues?.[field.key];

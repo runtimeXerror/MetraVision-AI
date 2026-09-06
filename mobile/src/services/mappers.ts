@@ -538,7 +538,12 @@ export function toInspection(dto: InspectionDTO): Inspection {
   return {
     id: dto.id,
     referenceId: dto.inspectionId,
-    inspectorId: dto.inspector.id,
+    // The badge, not the database key. This read `dto.inspector.id`, so every
+    // report printed `9b53c6afff82f854ce004b56` where `LM-INS-4471` belongs —
+    // twice, once under the officer's name and again in the signature block, on
+    // a document served on a dealer. The DTO carries both; only one of them
+    // means anything outside this database.
+    inspectorId: dto.inspector.inspectorId,
     inspectorName: dto.inspector.name,
     details: {
       businessName: dto.business.name,

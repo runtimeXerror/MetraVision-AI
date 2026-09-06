@@ -232,7 +232,11 @@ describe('checks awaiting computer vision', () => {
     const result = evaluate(request(), corpus);
     const warning = result.warnings.find((entry) => entry.code === 'MEASUREMENT_NOT_AVAILABLE');
 
-    expect(warning?.message).toContain('heightMm');
+    // The field, not the prose. The message is printed in a report served on a
+    // dealer and no longer names an internal property; which measurement the
+    // engine wants is carried beside it, where a diagnostic can read it.
+    expect(warning?.measurement).toBe('heightMm');
+    expect(warning?.message).toContain('measured on the package');
   });
 
   it('applies Table-I once a measurement is supplied', () => {

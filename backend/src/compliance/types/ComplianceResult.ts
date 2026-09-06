@@ -124,9 +124,23 @@ export interface ApplicableRuleSummary {
 
 export interface ComplianceWarning {
   code: string;
+  /**
+   * Addressed to the officer reading the report.
+   *
+   * It is printed verbatim in a document served on a dealer, so it says what
+   * they should do and never what the software cannot do. Anything that names
+   * an internal field belongs beside it as data, not inside it as prose.
+   */
   message: string;
   /** Rules the warning bears on, where it is rule-specific. */
   ruleIds?: string[];
+  /**
+   * The measurement the engine is waiting for, for MEASUREMENT_NOT_AVAILABLE.
+   *
+   * Machine-readable on purpose: the diagnostics and the tests need to know
+   * *which* measurement, and the message no longer says.
+   */
+  measurement?: string;
 }
 
 export interface ComplianceSummary {
