@@ -10,8 +10,8 @@ import { create } from 'zustand';
 
 type Theme = 'light' | 'dark';
 
-const THEME_KEY = 'sih26034.theme';
-const RAIL_KEY = 'sih26034.rail';
+const THEME_KEY = 'metravision.theme';
+const RAIL_KEY = 'metravision.rail';
 
 function readTheme(): Theme {
   try {

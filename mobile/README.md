@@ -1,4 +1,4 @@
-# SIH26034 — Inspector Mobile App
+# MetraVision AI — Mobile App
 
 Field inspector application for the **Packaged Commodities Compliance Scanner**.
 

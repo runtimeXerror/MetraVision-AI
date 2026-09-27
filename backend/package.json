@@ -1,8 +1,8 @@
 {
-  "name": "sih26034-backend",
+  "name": "metravision-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "SIH26034 — MetraVision AI - REST API for packaged-commodity compliance",
+  "description": "MetraVision AI — REST API for packaged-commodity compliance",
   "main": "dist/index.js",
   "engines": {
     "node": ">=20.0.0"

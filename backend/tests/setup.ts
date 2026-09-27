@@ -13,7 +13,7 @@ import { afterAll, afterEach, beforeAll, inject } from 'vitest';
  */
 
 beforeAll(async () => {
-  await mongoose.connect(inject('mongoUri'), { dbName: 'sih26034-test' });
+  await mongoose.connect(inject('mongoUri'), { dbName: 'metravision-test' });
 }, 120_000);
 
 afterEach(async () => {

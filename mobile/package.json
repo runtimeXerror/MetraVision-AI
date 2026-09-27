@@ -1,8 +1,8 @@
 {
-  "name": "sih26034-mobile",
+  "name": "metravision-mobile",
   "version": "1.0.0",
   "private": true,
-  "description": "SIH26034 — Inspector mobile app (Phase 1: mock analysis, no backend)",
+  "description": "MetraVision AI — field inspection mobile app",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",

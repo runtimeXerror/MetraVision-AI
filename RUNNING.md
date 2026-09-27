@@ -1,16 +1,16 @@
 # Running the project
 
-Commands only. Every path is from the repository root, `D:\Projects\SIH26034`.
+Commands only. Every path is from the repository root, `MetraVision-AI` (wherever you cloned it).
 
 Shown as PowerShell. In Git Bash the only difference is the slashes
-(`cd /d/Projects/SIH26034/...`) and `./.venv/Scripts/python.exe`.
+(`cd MetraVision-AI/...`) and `./.venv/Scripts/python.exe`.
 
 ---
 
 ## Everything at once
 
 ```powershell
-cd D:\Projects\SIH26034
+cd MetraVision-AI
 npm run dev
 ```
 
@@ -20,12 +20,12 @@ ready before starting the next, and stops all three on Ctrl-C.
 Then, in a **second terminal**, whichever client you need:
 
 ```powershell
-cd D:\Projects\SIH26034\mobile
+cd MetraVision-AI\mobile
 npm start
 ```
 
 ```powershell
-cd D:\Projects\SIH26034\web
+cd MetraVision-AI\web
 npm run dev
 ```
 
@@ -39,7 +39,7 @@ each one below needs the ones above it.
 ### 1. MongoDB — port 27017
 
 ```powershell
-cd D:\Projects\SIH26034\backend
+cd MetraVision-AI\backend
 npm run db
 ```
 
@@ -48,14 +48,14 @@ Leave it running. Data lives in `backend\.mongo-data\` and survives restarts.
 ### 2. OCR service — port 8001
 
 ```powershell
-cd D:\Projects\SIH26034\ocr-service
+cd MetraVision-AI\ocr-service
 .venv\Scripts\python.exe -m uvicorn app:app --port 8001
 ```
 
 Or, without the `cd` and without picking the interpreter yourself:
 
 ```powershell
-cd D:\Projects\SIH26034
+cd MetraVision-AI
 npm run dev:ocr
 ```
 
@@ -72,7 +72,7 @@ On any other port the service runs fine and the backend cannot find it, so
 ### 3. Backend API — port 4000
 
 ```powershell
-cd D:\Projects\SIH26034\backend
+cd MetraVision-AI\backend
 npm run dev
 ```
 
@@ -87,7 +87,7 @@ Fails with `ECONNREFUSED 127.0.0.1:27017` if step 1 is not running.
 ### 4. Mobile app — Expo
 
 ```powershell
-cd D:\Projects\SIH26034\mobile
+cd MetraVision-AI\mobile
 npm start
 ```
 
@@ -98,7 +98,7 @@ use `npm run tunnel` instead.
 ### 5. Web dashboard — port 5173
 
 ```powershell
-cd D:\Projects\SIH26034\web
+cd MetraVision-AI\web
 npm run dev
 ```
 
@@ -111,7 +111,7 @@ Opens at http://localhost:5173 and proxies `/api` to the backend on 4000.
 Once per machine, before any of the above.
 
 ```powershell
-cd D:\Projects\SIH26034
+cd MetraVision-AI
 npm run setup:ocr
 ```
 
@@ -120,17 +120,17 @@ this downloads the model weights (a minute or two, needs a connection) and
 caches them in `~\.paddlex\`; every start after that is offline.
 
 ```powershell
-cd D:\Projects\SIH26034\backend
+cd MetraVision-AI\backend
 npm install
 ```
 
 ```powershell
-cd D:\Projects\SIH26034\mobile
+cd MetraVision-AI\mobile
 npm install
 ```
 
 ```powershell
-cd D:\Projects\SIH26034\web
+cd MetraVision-AI\web
 npm install
 ```
 
@@ -160,21 +160,21 @@ netstat -ano | Select-String ":4000 " | Select-String LISTENING
 ## Tests
 
 ```powershell
-cd D:\Projects\SIH26034\backend
+cd MetraVision-AI\backend
 npm test
 ```
 
 ```powershell
-cd D:\Projects\SIH26034\backend
+cd MetraVision-AI\backend
 npm run typecheck
 ```
 
 ```powershell
-cd D:\Projects\SIH26034\mobile
+cd MetraVision-AI\mobile
 npm run typecheck
 ```
 
 ```powershell
-cd D:\Projects\SIH26034\web
+cd MetraVision-AI\web
 npm run typecheck
 ```

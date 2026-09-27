@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "MetraVision AI",
-    "slug": "sih26034-inspector",
+    "slug": "metravision-inspector",
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "lmscanner",
@@ -12,14 +12,14 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "in.gov.lm.sih26034.inspector",
+      "bundleIdentifier": "in.gov.lm.metravision.inspector",
       "infoPlist": {
         "NSCameraUsageDescription": "The inspector app uses the camera to photograph packaged commodity labels for compliance analysis.",
         "NSPhotoLibraryUsageDescription": "Allows you to attach an existing label photograph to an inspection."
       }
     },
     "android": {
-      "package": "in.gov.lm.sih26034.inspector",
+      "package": "in.gov.lm.metravision.inspector",
       "adaptiveIcon": {
         "backgroundColor": "#0A2A5C"
       },

@@ -4,8 +4,6 @@
 
 ### AI-Assisted Legal Metrology Compliance Intelligence System
 
-**Smart India Hackathon 2026 · Problem Statement SIH26034**
-
 ![React Native](https://img.shields.io/badge/React_Native-Expo_54-0B1F3A?logo=react&logoColor=61DAFB)
 ![React](https://img.shields.io/badge/Web-React_18_+_Vite-1E40AF?logo=vite&logoColor=white)
 ![Node.js](https://img.shields.io/badge/API-Node.js_+_Express-166534?logo=node.js&logoColor=white)
@@ -244,6 +242,6 @@ A compliance tool that overstates its own certainty is worse than no tool. So:
 
 <div align="center">
 
-**Team Newbie** · Smart India Hackathon 2026 · SIH26034
+Built by **[Vishal Kumar](https://github.com/runtimeXerror)**
 
 </div>

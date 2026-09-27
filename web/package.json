@@ -1,8 +1,8 @@
 {
-  "name": "sih26034-web",
+  "name": "metravision-web",
   "version": "1.0.0",
   "private": true,
-  "description": "SIH26034 — MetraVision AI - supervisor dashboard for packaged-commodity compliance",
+  "description": "MetraVision AI — supervisor dashboard for packaged-commodity compliance",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"

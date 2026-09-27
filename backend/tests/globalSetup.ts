@@ -28,7 +28,7 @@ import type { GlobalSetupContext } from 'vitest/node';
  * directory rather than one per run forever.
  */
 
-const DB_PATH = join(tmpdir(), 'sih26034-test-mongo');
+const DB_PATH = join(tmpdir(), 'metravision-test-mongo');
 
 let server: MongoMemoryServer | undefined;
 

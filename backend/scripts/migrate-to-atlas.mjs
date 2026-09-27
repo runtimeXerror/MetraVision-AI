@@ -44,7 +44,7 @@ const DRY_RUN = args.has('--dry-run');
 
 const SOURCE_URI = process.env.MONGODB_URI?.trim();
 const TARGET_URI = process.env.MONGODB_URI_ATLAS?.trim();
-const DB_NAME = process.env.MONGODB_DB_NAME?.trim() || 'sih26034';
+const DB_NAME = process.env.MONGODB_DB_NAME?.trim() || 'metravision';
 
 /**
  * Collections that are rebuilt rather than moved.

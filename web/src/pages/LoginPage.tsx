@@ -94,7 +94,7 @@ export function LoginPage() {
         </div>
 
         <p className="relative text-2xs text-rail-muted">
-          Legal Metrology (Packaged Commodities) Rules, 2011 · SIH26034
+          Legal Metrology (Packaged Commodities) Rules, 2011
         </p>
       </aside>
 

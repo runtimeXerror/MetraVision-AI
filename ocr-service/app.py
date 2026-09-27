@@ -90,7 +90,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="SIH26034 OCR Service",
+    title="MetraVision AI OCR Service",
     version="1.0.0",
     description="PaddleOCR PP-OCRv5 text extraction for packaged-commodity labels.",
     lifespan=lifespan,

@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 
 // One-off: remove the records that never reached a verdict — abandoned drafts
 // with no photographs and one scan stuck in PROCESSING.
-await mongoose.connect('mongodb://127.0.0.1:27017', { dbName: 'sih26034', serverSelectionTimeoutMS: 5000 });
+await mongoose.connect('mongodb://127.0.0.1:27017', { dbName: process.env.MONGODB_DB_NAME || 'metravision', serverSelectionTimeoutMS: 5000 });
 const col = mongoose.connection.db!.collection('inspections');
 
 const targets = await col

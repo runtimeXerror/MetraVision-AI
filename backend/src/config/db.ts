@@ -27,7 +27,7 @@ const run = promisify(execFile);
  * One path means one directory however many times the server restarts, and the
  * data survives a restart instead of being reseeded with fresh ids.
  */
-const DEV_DB_PATH = join(tmpdir(), 'sih26034-dev-mongo');
+const DEV_DB_PATH = join(tmpdir(), 'metravision-dev-mongo');
 
 /**
  * How long mongod is given to become ready before the attempt is abandoned.
@@ -193,7 +193,7 @@ async function reapStaleMongod(): Promise<boolean> {
         '-NoProfile',
         '-Command',
         `Get-CimInstance Win32_Process -Filter "Name LIKE 'mongod%'" | ` +
-          `Where-Object { $_.CommandLine -like '*sih26034-dev-mongo*' } | ` +
+          `Where-Object { $_.CommandLine -like '*metravision-dev-mongo*' } | ` +
           'Select-Object -ExpandProperty ProcessId',
       ]);
 
@@ -204,7 +204,7 @@ async function reapStaleMongod(): Promise<boolean> {
       return pids.length > 0;
     }
 
-    const { stdout } = await run('pgrep', ['-f', 'sih26034-dev-mongo']);
+    const { stdout } = await run('pgrep', ['-f', 'metravision-dev-mongo']);
     const pids = stdout.split(/\s+/).filter(Boolean);
     for (const pid of pids) process.kill(Number(pid), 'SIGKILL');
 

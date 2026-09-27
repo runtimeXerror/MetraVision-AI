@@ -7,7 +7,7 @@
 #
 # CPU wheels on purpose. GPU is picked up automatically when a CUDA build of
 # paddlepaddle is installed instead, and nothing in this service assumes one —
-# an SIH demo laptop has no GPU.
+# a demo laptop has no GPU.
 
 paddleocr==3.7.0
 

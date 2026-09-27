@@ -1,8 +1,8 @@
 {
-  "name": "sih26034",
+  "name": "metravision-ai",
   "version": "1.0.0",
   "private": true,
-  "description": "SIH26034 — Legal Metrology packaged-commodity compliance scanner. Root scripts that run the OCR sidecar and the API together.",
+  "description": "MetraVision AI — Legal Metrology packaged-commodity compliance scanner. Root scripts that run the OCR sidecar and the API together.",
   "engines": {
     "node": ">=20.0.0"
   },

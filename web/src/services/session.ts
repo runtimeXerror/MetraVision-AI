@@ -12,7 +12,7 @@ import type { AuthSession, User } from '@/types/api';
  * rather than returning null.
  */
 
-const KEY = 'sih26034.session';
+const KEY = 'metravision.session';
 
 export interface StoredSession {
   accessToken: string;

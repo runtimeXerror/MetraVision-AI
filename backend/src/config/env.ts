@@ -21,10 +21,10 @@ const schema = z.object({
    * matters on demo day. In production a missing URI is a hard failure.
    */
   MONGODB_URI: z.string().optional(),
-  MONGODB_DB_NAME: z.string().default('sih26034'),
+  MONGODB_DB_NAME: z.string().default('metravision'),
 
-  JWT_ACCESS_SECRET: z.string().min(16).default('sih26034-dev-access-secret-change-me'),
-  JWT_REFRESH_SECRET: z.string().min(16).default('sih26034-dev-refresh-secret-change-me'),
+  JWT_ACCESS_SECRET: z.string().min(16).default('metravision-dev-access-secret-change-me'),
+  JWT_REFRESH_SECRET: z.string().min(16).default('metravision-dev-refresh-secret-change-me'),
   JWT_ACCESS_TTL: z.string().default('2h'),
   JWT_REFRESH_TTL: z.string().default('30d'),
 

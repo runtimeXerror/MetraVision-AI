@@ -1,4 +1,4 @@
-# SIH26034 — Supervisor Dashboard
+# MetraVision AI — Supervisor Dashboard
 
 Web console for the **Packaged Commodities Compliance Scanner**.
 

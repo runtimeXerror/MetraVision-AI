@@ -1,4 +1,4 @@
-# SIH26034 — Backend API (Phase 2)
+# MetraVision AI — Backend API
 
 REST API for the Packaged Commodities Compliance Scanner.
 
@@ -114,7 +114,7 @@ MONGODB_URI=mongodb://127.0.0.1:27017
 **Docker**
 
 ```bash
-docker run -d --name sih-mongo -p 27017:27017 -v sih-mongo-data:/data/db mongo:7
+docker run -d --name metravision-mongo -p 27017:27017 -v metravision-mongo-data:/data/db mongo:7
 # then in .env
 MONGODB_URI=mongodb://127.0.0.1:27017
 ```
