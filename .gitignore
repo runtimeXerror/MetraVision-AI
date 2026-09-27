@@ -30,3 +30,7 @@ backend/uploads/*
 *service-account*.json
 *-credentials.json
 gcp-*.json
+
+# Local copies of .env files — they hold the same secrets as .env
+*.bak
+.env.backup
