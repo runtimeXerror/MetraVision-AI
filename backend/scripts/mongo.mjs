@@ -39,7 +39,13 @@ async function findMongod() {
 
   try {
     const entries = await readdir(cacheDir);
-    const binary = entries.find((name) => name.startsWith('mongod'));
+    // A mongod that crashes on Windows leaves a `.mdmp` dump beside itself in
+    // this directory, under the same `mongod-…` prefix; spawning that fails.
+    const binary = entries.find(
+      (name) =>
+        name.startsWith('mongod') &&
+        (process.platform === 'win32' ? name.endsWith('.exe') : !name.includes('.mdmp')),
+    );
     if (binary) return join(cacheDir, binary);
   } catch {
     // No cache yet — fall through to whatever is on PATH.
