@@ -184,7 +184,7 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
                 supports. On a document that gets shown to the party it was
                 issued against, "how much was read" belongs beside "what was
                 found" and not several sections down. */}
-            <ComplianceTally analysis={analysis} />
+            <ComplianceTally analysis={analysis} scan={inspection?.scan} />
           </View>
         ) : (
           <Card style={{ marginTop: spacing.md }}>
@@ -443,22 +443,19 @@ export function ReportDetailScreen({ route, navigation }: RootScreenProps<'Repor
  * One declaration's rule verdict, as a word.
  *
  * "Pass" / "Fail" / "N/A" is test-runner vocabulary. A dealer reading this is
- * being told whether a legal requirement was met, and "Needs review" has to be
- * unmistakably distinct from "Not compliant" — only one of the two is an
- * adverse finding against them.
+ * being told whether a legal requirement was met, in the words an adverse
+ * finding against them is written in.
  *
  * A passing declaration says nothing at all. On a list where most rows comply,
  * printing "Compliant" twelve times turns the two that do not into something
  * the eye has to hunt for; silence is what makes them findable.
  */
 function ResultTag({ check }: { check?: { result: string } }) {
-  if (!check || check.result === 'pass' || check.result === 'not_applicable') return null;
-
-  const failed = check.result === 'fail';
+  if (check?.result !== 'fail') return null;
 
   return (
-    <Txt variant="caption" color={failed ? colors.danger : colors.warning}>
-      {failed ? 'Not compliant' : 'Needs review'}
+    <Txt variant="caption" color={colors.danger}>
+      Not compliant
     </Txt>
   );
 }

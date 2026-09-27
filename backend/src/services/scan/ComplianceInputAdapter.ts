@@ -120,6 +120,37 @@ function facesOf(images: Array<{ imageId: string; face?: string }>): string[] {
   return [...seen.keys()];
 }
 
+/**
+ * ── WHAT A CATEGORY SAYS ABOUT THE PACKAGE ──────────────────────────────────
+ *
+ * The rules and the exemptions turn on facts — is this a food article, a
+ * cosmetic, a garment, a drug — and the inspector states one of them when
+ * they pick a category. That statement was reaching the engine as a bare
+ * `category` string and nothing else, so every category-specific provision
+ * stayed switched off: a face cream was never a cosmetic to rule 6(8), a
+ * medicine was never a drug formulation to rule 26(c), a shirt was never a
+ * garment. Each was judged as a generic retail pack, and asked for
+ * declarations the law does not ask of it.
+ *
+ * This is a translation of the category into the flags the corpus names. A
+ * flag the caller set explicitly is left alone.
+ *
+ * `pharmaceutical` deliberately sets nothing. `isDrugFormulation` switches the
+ * whole of Chapter II off under rule 26(c), which reaches only formulations
+ * under the Drugs (Price Control) Order — a question of which schedule the
+ * medicine is on, not of which shelf it was found on. That flag stays with the
+ * inspector.
+ */
+const CONTEXT_BY_CATEGORY: Record<string, Partial<ProductContext>> = {
+  packaged_food: { isFoodArticle: true },
+  beverage: { isFoodArticle: true },
+  cosmetic: { isCosmeticOrToiletry: true },
+  personal_care: { isCosmeticOrToiletry: true },
+  medical_device: { isMedicalDevice: true },
+  apparel: { isGarmentOrHosiery: true },
+  electronics: { isElectronicProduct: true },
+};
+
 /** Context keys an extraction signal is allowed to set. */
 const ADOPTABLE = new Set<keyof ProductContext>([
   'isImported',
@@ -216,6 +247,12 @@ export function toComplianceRequest(input: AdapterInput): AdapterOutput {
       appliedSignals.push(signal);
     } else if (context.category !== extraction.category.value) {
       overriddenSignals.push(signal);
+    }
+  }
+
+  for (const [key, value] of Object.entries(CONTEXT_BY_CATEGORY[context.category ?? ''] ?? {})) {
+    if ((context as Record<string, unknown>)[key] === undefined) {
+      (context as Record<string, unknown>)[key] = value;
     }
   }
 

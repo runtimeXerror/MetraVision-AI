@@ -26,7 +26,7 @@ import {
  * ────────────────────────────────────────────────────────────────────────────
  */
 
-export type ExtractionMethod = 'LABEL_MATCH' | 'PATTERN_MATCH' | 'HEURISTIC' | 'DERIVED';
+export type ExtractionMethod = 'LABEL_MATCH' | 'PATTERN_MATCH' | 'HEURISTIC' | 'DERIVED' | 'MODEL';
 
 export interface ExtractedValue {
   /** What is handed on. For a rule that inspects wording, the whole line. */
@@ -118,9 +118,68 @@ function isValueBearing(text: string): boolean {
   return /\d/.test(text) || /\p{L}{2,}/u.test(text);
 }
 
+/**
+ * Words that only ever name a declaration, never state one.
+ *
+ * Kept deliberately small: every word here is one this system will refuse to
+ * accept as a value on its own, so a word that could plausibly *be* a value
+ * does not belong in it. `see`, `cap`, `crimp` and `carton` are all absent for
+ * that reason — "SEE CAP" is a real, useful reading.
+ */
+const LABEL_WORDS = new Set([
+  'batch', 'lot', 'no', 'nos', 'number', 'code',
+  'mfg', 'mfd', 'mfgd', 'manufacture', 'manufactured', 'manufacturing',
+  'packed', 'packing', 'pkd', 'date', 'dt', 'dates',
+  'exp', 'expiry', 'expires', 'expiration', 'best', 'before', 'use', 'by',
+  'mrp', 'price', 'rate', 'retail', 'maximum', 'sale', 'unit',
+  'net', 'qty', 'quantity', 'wt', 'weight', 'vol', 'volume', 'content', 'contents',
+]);
+
+/**
+ * ── WHERE ONE LABEL RUNS STRAIGHT INTO THE NEXT ────────────────────────────
+ *
+ * Indian packs routinely print two declarations under one heading:
+ *
+ *     BATCH NO. & MFG DATE: 80/23/000
+ *
+ * The batch matcher stops at `BATCH NO.` and hands back `& MFG DATE:` as what
+ * followed it. `isValueBearing` passed that — it has two runs of letters — and
+ * a report went out to a dealer recording their batch number as the string
+ * "& MFG DATE:".
+ *
+ * The bracketed-suffix rule above cannot catch this, because the tail here is
+ * not `(P)` or `:` but a whole second label that reads like words.
+ *
+ * So the second heading is *dropped* rather than the line rejected. Leading
+ * punctuation and label words are eaten until something that is not label
+ * vocabulary appears, and that is the value: `& MFG DATE: 80/23/000` becomes
+ * `80/23/000`. Rejecting instead would have thrown away the value printed
+ * right there on the same line.
+ *
+ * Where nothing survives — `& MFG DATE:` on its own, the value being in the
+ * next column — the caller is left with an empty string, fails
+ * `isValueBearing`, and the neighbour lookup in `findField` runs, which is
+ * exactly what should happen.
+ *
+ * `SEE CAP` is untouched: `see` is not label vocabulary. That reading is a
+ * pointer to the crimp and is handled by `POINTS_ELSEWHERE` below, not here.
+ */
+function stripLeadingLabelRun(text: string): string {
+  let rest = text;
+  for (;;) {
+    const trimmed = rest.replace(/^[\s&/,:;.\-–—()[\]]+/u, '');
+    const word = /^(\p{L}+)/u.exec(trimmed);
+    if (word === null) return trimmed;
+    if (!LABEL_WORDS.has(word[1]!.toLowerCase())) return trimmed;
+    rest = trimmed.slice(word[1]!.length);
+  }
+}
+
 /** The text after the label, rejected when the label was all there was. */
-const afterLabel = (after: string): ExtractedValue | null =>
-  isValueBearing(after) ? { value: after.trim() } : null;
+const afterLabel = (after: string): ExtractedValue | null => {
+  const value = stripLeadingLabelRun(after);
+  return isValueBearing(value) ? { value: value.trim() } : null;
+};
 
 /* ── Currency ─────────────────────────────────────────────────────────────── */
 
@@ -218,7 +277,7 @@ const QUANTITY_VALUE = /(\d[\d,]*(?:\.\d+)?)\s*([A-Za-z]{1,12}|\p{Script=Devanag
  * stage already knows which token was the unit, and re-deriving it is how "1 N"
  * becomes a unit of "N" on one path and nothing on another.
  */
-function quantityValue(after: string): ExtractedValue | null {
+export function quantityValue(after: string): ExtractedValue | null {
   // Two repairs, weakest first. `repairDigits` handles a span that already
   // looks numeric; `repairQuantityDigits` then takes the token sitting against
   // the unit, which is the one place on a label where a bolder substitution is
@@ -296,15 +355,58 @@ function looksLikeProse(text: string): boolean {
 function dateValue(after: string): ExtractedValue | null {
   // …but only where something was printed. `MFD.(P) &` leaves `(P) &`, which
   // is the label's own tail, not an unreadable date — see `isValueBearing`.
-  if (!isValueBearing(after)) return null;
+  // `& Batch No.` is the *next* heading — see `stripLeadingLabelRun`.
+  const text = stripLeadingLabelRun(after);
+  if (!isValueBearing(text)) return null;
 
-  const match = DATE_LIKE.exec(after);
+  const match = DATE_LIKE.exec(text);
   if (match) return { value: match[0].trim() };
 
-  const remainder = after.trim();
+  const remainder = text.trim();
   if (remainder.length > UNPARSED_DATE_MAX || looksLikeProse(remainder)) return null;
 
   return { value: remainder };
+}
+
+/** `18 months`, `2 years` — a shelf life stated as a period. */
+const SHELF_LIFE = /\b(\d{1,3})\s*(day|week|month|year)s?\b/i;
+
+/**
+ * ── A SHELF LIFE IS NOT A DATE ──────────────────────────────────────────────
+ *
+ * Rule 6(1)(c) is satisfied either by a date or by a period counted from
+ * manufacture, and cosmetics overwhelmingly print the second: "Use before 18
+ * months from the date of manufacturing."
+ *
+ * `dateValue` looks for a date, and failing that keeps whatever short scrap of
+ * text is left — refusing anything that reads like prose, because on a date
+ * field prose is the label's own tail rather than a value. That rule inverted
+ * the evidence here. The sentence as printed is prose, so the frame that read
+ * it correctly contributed nothing; a softer frame of the same line came back
+ * `18 monts ton`, which is short and unprosaic enough to pass, and *that* was
+ * recorded and printed on the report served on the dealer.
+ *
+ * Naming the period is what fixes it: the declaration is read as what it is,
+ * the whole sentence no longer has to survive an OCR pass intact, and a
+ * garbled read of it no longer beats a clean one.
+ */
+function shelfLifeValue(after: string): ExtractedValue | null {
+  const text = stripLeadingLabelRun(after);
+  if (!isValueBearing(text)) return null;
+
+  // A printed date still wins where the package gives one — "Use before
+  // 12/2027" is a date declaration and should be recorded as that.
+  const date = DATE_LIKE.exec(after);
+  if (date) return { value: date[0].trim() };
+
+  const period = SHELF_LIFE.exec(after);
+  if (period) {
+    const count = Number(period[1]);
+    const unit = period[2]!.toLowerCase();
+    return { value: `${count} ${unit}${count === 1 ? '' : 's'}` };
+  }
+
+  return dateValue(after);
 }
 
 /**
@@ -482,7 +584,7 @@ export const FIELD_SPECS: FieldSpec[] = [
     label: 'Best before',
     engineField: true,
     labels: [/\bbest\s+before\b/i, /\bbest\s+by\b/i, /\buse\s+by\b/i, /\buse\s+before\b/i],
-    extract: dateValue,
+    extract: shelfLifeValue,
     neighbour: DATE_LIKE,
   },
   {
@@ -510,8 +612,20 @@ export const FIELD_SPECS: FieldSpec[] = [
     label: 'Consumer care details',
     engineField: true,
     labels: [
-      /\b(?:consumer|customer)\s*care\b/i,
-      /\bfor\s+(?:any\s+)?(?:complaints?|queries|feedback|grievances?)\b/i,
+      /*
+       * `care` was the only noun this took after "consumer", and the heading
+       * printed on a great many packs is not "Consumer Care" — it is "For
+       * Consumer Complaints / Queries". Neither arm reached it: the first
+       * wanted the word care, and the second wanted the complaint to follow
+       * "for" immediately, which "For Consumer Complaints" does not.
+       *
+       * So a block giving an address, a mobile number and an e-mail address
+       * was recorded as not declared, on a report served on the dealer — while
+       * the same three lines sat in the manufacturer field, which had reached
+       * them through "Same as Marketed By Address".
+       */
+      /\b(?:consumer|customer)\s*(?:care|complaints?|queries|grievances?|support|service)\b/i,
+      /\bfor\s+(?:any\s+)?(?:\w+\s+){0,2}(?:complaints?|queries|feedback|grievances?)\b/i,
       /\bhelpline\b/i,
       /\bcustomer\s+service\b/i,
       /\bgrievance\s+officer\b/i,

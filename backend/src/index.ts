@@ -8,6 +8,7 @@ import { connectDatabase, disconnectDatabase, isEphemeralDatabase } from './conf
 import { env } from './config/env';
 import { logger } from './config/logger';
 import { seedDatabase } from './seed/seed';
+import { migrateReviewStates } from './services/migrateReviewStates';
 
 /**
  * Server entry point.
@@ -42,6 +43,10 @@ async function bootstrap(): Promise<void> {
       logger.info(`Seeded ${result.users} users and ${result.inspections} inspections.`);
     }
   }
+
+  // Records left in the retired "review required" state, or evaluated under an
+  // older engine, are re-run before the first request can read them.
+  await migrateReviewStates();
 
   const app = createApp();
 

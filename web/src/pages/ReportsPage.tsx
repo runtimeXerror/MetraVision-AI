@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Download, FileBarChart, FileText, Share2, ShieldAlert, Users } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -47,6 +48,32 @@ export function ReportsPage() {
     placeholderData: (previous) => previous,
   });
 
+  /**
+   * One download at a time, and a failure that says so.
+   *
+   * `printing` holds the id being fetched rather than a boolean, so the row
+   * that was clicked is the one that shows the spinner — with a boolean, every
+   * row in the table would spin at once.
+   */
+  const [printing, setPrinting] = useState<string | null>(null);
+  const [printError, setPrintError] = useState<string | null>(null);
+
+  async function download(id: string, reference: string) {
+    setPrinting(id);
+    setPrintError(null);
+    try {
+      await reportService.printReport(id, reference);
+    } catch (cause) {
+      setPrintError(
+        cause instanceof Error
+          ? `The report could not be opened. ${cause.message}`
+          : 'The report could not be opened.',
+      );
+    } finally {
+      setPrinting(null);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -75,12 +102,18 @@ export function ReportsPage() {
         />
       </div>
 
-      <Notice tone="info" icon={FileText} className="mb-4">
-        Each inspection below carries a structured report payload from the API. Rendering it to a
-        signed PDF belongs on the server, where the document is produced from the record itself
-        rather than from whatever a browser happened to be displaying — so the download and share
-        actions here are deliberately inert.
-      </Notice>
+      {printError ? (
+        <Notice tone="violation" icon={ShieldAlert} className="mb-4">
+          {printError}
+        </Notice>
+      ) : (
+        <Notice tone="info" icon={FileText} className="mb-4">
+          Download opens the report the server renders from the record itself — the same document
+          the inspector app produces — and hands it to the browser's print dialogue, where it saves
+          as PDF. Nothing here is composed from what the screen is showing. Sharing is still issued
+          through the departmental record system.
+        </Notice>
+      )}
 
       <FilterBar
         values={filters}
@@ -166,9 +199,11 @@ export function ReportsPage() {
                           size="sm"
                           variant="ghost"
                           icon={Download}
-                          title="PDF export is produced server-side and is not part of this release"
-                          disabled
-                          aria-label="Download report (not available)"
+                          title="Download the report as PDF"
+                          loading={printing === inspection.id}
+                          disabled={printing !== null}
+                          aria-label={`Download report ${inspection.inspectionId}`}
+                          onClick={() => void download(inspection.id, inspection.inspectionId)}
                         />
                         <Button
                           size="sm"

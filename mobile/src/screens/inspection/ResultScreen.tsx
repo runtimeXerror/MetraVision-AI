@@ -1,22 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import {
   CheckRow,
   ComplianceBadge,
-  EvidenceView,
   ExtractedFieldCard,
   ComplianceTally,
-  ConfidencePill,
   LabelTextView,
   VerdictPanel,
   ViolationCard,
 } from '../../components/domain';
 import { ActionBar, Body, Notice, Screen, ScreenHeader, StepIndicator } from '../../components/layout';
 import {
-  Badge,
   Button,
   Card,
   ChipBar,
@@ -27,12 +24,10 @@ import {
 } from '../../components/ui';
 import { IssueCard } from '../../components/legal';
 import { productCategoryLabels } from '../../constants/labels';
-import { colors, radius, spacing } from '../../constants/theme';
+import { colors, spacing } from '../../constants/theme';
 import { fieldsNeedingReview, useAnalysisStore } from '../../store/analysisStore';
-import { imageForRemoteId, useImageStore } from '../../store/imageStore';
 import { useInspectionStore } from '../../store/inspectionStore';
-import type { ExtractedField } from '../../types';
-import { formatConfidence, formatDuration, pluralize } from '../../utils/format';
+import { formatDuration } from '../../utils/format';
 
 import { INSPECTION_STEPS } from './InspectionDetailsScreen';
 
@@ -41,9 +36,9 @@ type Tab = 'fields' | 'issues' | 'checks' | 'text';
 /**
  * Step 5 — the compliance result.
  *
- * Three verdicts, never a binary pass/fail: `review_required` is what the
- * system reports when it is not confident enough to assert either of the
- * others, and that distinction is the whole reason the review flow exists.
+ * Two verdicts, compliant or not. What the camera could not read is not a
+ * third verdict; it is a declaration the officer is asked to confirm before
+ * filing, and the engine re-runs against their answer.
  *
  * ── WHAT IS ON THE SCREEN, AND WHAT IS ONE TAP AWAY ─────────────────────────
  *
@@ -74,16 +69,9 @@ export function ResultScreen() {
 
   const analysis = useAnalysisStore((state) => state.analysis);
   const scan = useAnalysisStore((state) => state.scan);
-  const images = useImageStore((state) => state.images);
-  // The local-id → server-id map; `imageForRemoteId` needs both.
-  const uploaded = useImageStore((state) => state.uploaded);
   const details = useInspectionStore((state) => state.details);
 
   const [tab, setTab] = useState<Tab>('fields');
-  const [evidenceFor, setEvidenceFor] = useState<ExtractedField | null>(null);
-  /** The review list starts folded — see the note where it is rendered. */
-  const [reviewOpen, setReviewOpen] = useState(false);
-
   const pending = useMemo(() => fieldsNeedingReview(analysis), [analysis]);
 
   if (!analysis) {
@@ -106,9 +94,6 @@ export function ResultScreen() {
   }
 
   const { compliance } = analysis;
-  const evidenceImage = evidenceFor
-    ? imageForRemoteId(evidenceFor.sourceImageId, images, uploaded)
-    : undefined;
 
   // The engine's own issue list where a scan produced one, and the three-state
   // projection otherwise — a record from the older workflow still has to render.
@@ -147,61 +132,11 @@ export function ResultScreen() {
             of those two things again in a different shape. */}
         <ComplianceTally analysis={analysis} />
 
-        {/* The one instruction on a page of statements. Folded, because on a
-            label with eight declarations awaiting review the open list pushed
-            the verdict off the screen — but the heading is always visible,
-            because an officer about to finalize has to know work is waiting. */}
-        {pending.length > 0 ? (
-          <View style={styles.reviewBlock}>
-            <Pressable
-              onPress={() => setReviewOpen((current) => !current)}
-              accessibilityRole="button"
-              accessibilityLabel={
-                reviewOpen ? 'Hide the declarations awaiting review' : 'Show which declarations await review'
-              }
-              accessibilityState={{ expanded: reviewOpen }}
-              style={({ pressed }) => (pressed ? { opacity: 0.7 } : undefined)}
-            >
-              <Row gap={spacing.sm} align="center">
-                <Ionicons name="create-outline" size={16} color={colors.warning} />
-                <Txt variant="bodyStrong" style={{ flex: 1 }}>
-                  {pluralize(pending.length, 'declaration')} need your review
-                </Txt>
-                <Ionicons
-                  name={reviewOpen ? 'chevron-up' : 'chevron-down'}
-                  size={16}
-                  color={colors.warning}
-                />
-              </Row>
-            </Pressable>
-
-            {reviewOpen ? <View style={{ height: spacing.sm }} /> : null}
-
-            {reviewOpen ? pending.map((field, index) => (
-              <Pressable
-                key={field.key}
-                onPress={() => navigation.navigate('Review')}
-                accessibilityRole="button"
-                accessibilityLabel={`Review ${field.label}`}
-                style={({ pressed }) => [styles.reviewRow, pressed && { opacity: 0.7 }]}
-              >
-                <Txt variant="caption" color={colors.textFaint} style={{ width: 18 }}>
-                  {index + 1}
-                </Txt>
-                <View style={{ flex: 1 }}>
-                  <Txt variant="bodyStrong">{field.label}</Txt>
-                  <Txt variant="caption" color={colors.textMuted} numberOfLines={1}>
-                    {field.aiValue
-                      ? `Read as "${field.aiValue}"`
-                      : 'Not found on the photographs taken'}
-                  </Txt>
-                </View>
-                <ConfidencePill confidence={field.confidence} />
-                <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
-              </Pressable>
-            )) : null}
-          </View>
-        ) : null}
+        {/* No "N declarations need your review" block here. The verdict is
+            the verdict; a declaration the camera missed is corrected from the
+            row itself or from the Review button below, and the nag that stood
+            between the tally and the findings asked the officer to do that
+            before they had read what was found. */}
 
         {/*
           Unfolded on purpose. Both of these say the result should be read
@@ -275,12 +210,7 @@ export function ResultScreen() {
         <View style={{ marginTop: spacing.base }}>
           {tab === 'fields' ? (
             analysis.fields.map((field) => (
-              <ExtractedFieldCard
-                key={field.key}
-                field={field}
-                onViewEvidence={() => setEvidenceFor(field)}
-                onReview={() => navigation.navigate('Review')}
-              />
+              <ExtractedFieldCard key={field.key} field={field} />
             ))
           ) : tab === 'issues' ? (
             scan ? (
@@ -370,51 +300,6 @@ export function ResultScreen() {
         </Row>
       </ActionBar>
 
-      {/* Evidence viewer */}
-      <Modal
-        visible={evidenceFor !== null}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setEvidenceFor(null)}
-      >
-        <Pressable style={styles.backdrop} onPress={() => setEvidenceFor(null)}>
-          <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
-            <View style={styles.grabber} />
-
-            {evidenceFor ? (
-              <ScrollView showsVerticalScrollIndicator={false}>
-                <Row justify="space-between" style={{ marginBottom: spacing.md }}>
-                  <Txt variant="heading">{evidenceFor.label}</Txt>
-                  <Badge
-                    label={formatConfidence(evidenceFor.confidence)}
-                    tone={evidenceFor.confidence >= 0.75 ? 'success' : 'warning'}
-                    size="sm"
-                  />
-                </Row>
-
-                <EvidenceView image={evidenceImage} field={evidenceFor} />
-
-                <Card flat style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt }}>
-                  <Txt variant="overline" color={colors.textFaint}>
-                    Value read
-                  </Txt>
-                  <Txt variant="bodyStrong" style={{ marginTop: 3 }}>
-                    {evidenceFor.aiValue ?? 'Not declared'}
-                  </Txt>
-                </Card>
-
-                <Button
-                  title="Close"
-                  variant="secondary"
-                  fullWidth
-                  onPress={() => setEvidenceFor(null)}
-                  style={{ marginTop: spacing.md }}
-                />
-              </ScrollView>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
     </Screen>
   );
 }
@@ -434,64 +319,5 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  /**
-   * The review block.
-   *
-   * Amber only at the edge, not as a fill. It is the one instruction on a page
-   * of statements and has to be findable, but it sits directly under a verdict
-   * panel that is already carrying a full-strength tone — two saturated blocks
-   * in a row and neither reads as more urgent than the other.
-   */
-  reviewBlock: {
-    marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.base,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    backgroundColor: colors.warningSoft,
-  },
-  reviewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  reviewBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginTop: spacing.md,
-    padding: spacing.base,
-    borderRadius: radius.md,
-    backgroundColor: colors.warningSoft,
-    borderWidth: 1,
-    borderColor: colors.warning,
-  },
-  reviewIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.warning,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   hairline: { height: 1, backgroundColor: colors.border },
-  backdrop: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
-  sheet: {
-    maxHeight: '88%',
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    padding: spacing.lg,
-    paddingBottom: spacing.xxl,
-  },
-  grabber: {
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.borderStrong,
-    alignSelf: 'center',
-    marginBottom: spacing.base,
-  },
 });

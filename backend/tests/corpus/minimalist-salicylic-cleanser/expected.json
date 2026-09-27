@@ -1,0 +1,43 @@
+{
+  "package": "Minimalist Salicylic Acid + LHA 02% Cleanser, 100 ml",
+  "category": "cosmetic",
+  "inspectionDate": "2026-09-07",
+  "images": [
+    { "file": "front.jpg", "face": "FRONT" },
+    { "file": "back.jpg", "face": "BACK" },
+    { "file": "back-stamp.jpg", "face": "BACK" }
+  ],
+  "fields": {
+    "brand": "Minimalist",
+    "commodity_name": "Cleanser",
+    "net_quantity": "100 ml",
+    "mrp": { "contains": ["299.00", "MRP"] },
+    "batch_number": "AAAA557",
+    "manufacturing_date": "03/2026",
+    "best_before": { "contains": ["18 months"] },
+    "country_of_origin": "India",
+    "manufacturer": { "contains": ["Drugs & Pharmaceuticals", "Haridwar", "249403"] },
+    "consumer_care": { "contains": ["help@beminimalist.co", "46555"] },
+    "ingredients": { "contains": ["Salicylic Acid", "Allantoin"] },
+    "unit_sale_price": null,
+    "fssai_licence": null,
+    "veg_nonveg_mark": null,
+    "gm_declaration": null,
+    "dimensions": null
+  },
+  "mustNotViolate": [
+    "mrp",
+    "batch_number",
+    "manufacturing_date",
+    "best_before",
+    "consumer_care",
+    "net_quantity",
+    "country_of_origin",
+    "manufacturer"
+  ],
+  "knownGaps": {
+    "manufacturer": "The pack says Akums Drugs & Pharmaceuticals Ltd. and the recogniser read Akurns — rn for m, which no amount of layout reasoning can undo. The expectation asserts the rest of the block, and the misread is the LLM correction stage's to fix.",
+    "ingredients": "The Ingredients heading is in the second frame and the only legible copy of the list is in the third, which does not show the heading. No geometric reader can pair a label in one photograph with a value in another, and it should not try. This is for the LLM stage, which reads the text of every frame together."
+  },
+  "notes": "Case two, and the reason the corpus exists. Photographed three times: a front panel, a back panel, and a closer frame of the same back panel. Every declaration on it is printed and legible, and the recogniser read all of them — 299.00 at 0.9996, AAAA557 at 0.9997, 03/2026 at 0.9993, all in the third frame. The report that came out of it recorded the MRP as 4655 (the tail of the consumer-care mobile number, misread in the second frame), the batch as 302022 (the marketer's Jaipur PIN), the manufacturing date as 03/20 (the second frame's truncated read, which the rule engine then reported as a violation for not being a readable month and year), and the consumer care details as not declared while the same block sat in the manufacturer field. Three defects and one false accusation, against a package that declares everything the Rules ask of it. Two structural problems produced all of it: nothing chose between three readings of one declaration, and the stamped block's labels and values are separate OCR lines side by side, which a line-at-a-time matcher cannot pair."
+}

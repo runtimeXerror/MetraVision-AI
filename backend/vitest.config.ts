@@ -29,6 +29,23 @@ export default defineConfig({
       // sidecar the developer happens to have running.
       OCR_SERVICE_URL: 'http://127.0.0.1:9',
       MOCK_OCR_DELAY_MS: '0',
+      /*
+       * The same rule as the OCR provider above, and it was missed when the
+       * model stage was added.
+       *
+       * `LLM_PROVIDER` was read from the developer's `.env`, so every run of
+       * the suite made real calls to Google — six of them from the corpus
+       * tests alone, before the pipeline tests. The free tier for
+       * `gemini-3.7-flash` is twenty requests a *day*, so a morning's work on
+       * the extractor exhausted the quota, and every scan the inspector made
+       * afterwards ran with the model silently skipped.
+       *
+       * A test run must never reach a paid API. `GeminiLLMProvider` has its
+       * own tests against a stubbed `fetch`; the key is blanked as well as the
+       * provider, so a provider constructed by mistake still cannot call out.
+       */
+      LLM_PROVIDER: 'none',
+      GEMINI_API_KEY: '',
     },
     globals: false,
     // One MongoDB for the whole run, started here rather than per file — see

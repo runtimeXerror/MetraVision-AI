@@ -4,7 +4,6 @@ import { Pressable, View } from 'react-native';
 
 import { colors, spacing } from '../constants/theme';
 import type { ComplianceIssue } from '../types';
-import { formatConfidence } from '../utils/format';
 
 import { Badge, Card, Row, Txt } from './ui';
 
@@ -47,13 +46,7 @@ export function IssueCard({ issue }: { issue: ComplianceIssue }) {
             </Txt>
           ) : null}
         </View>
-        <Badge
-          label={
-            isViolation ? 'Potential violation' : issue.classification === 'review' ? 'Review' : 'Note'
-          }
-          tone={isViolation ? 'danger' : issue.classification === 'review' ? 'warning' : 'neutral'}
-          size="sm"
-        />
+        <Badge label="Potential violation" tone="danger" size="sm" />
       </Row>
 
       <Txt variant="caption" color={colors.textMuted} style={{ marginTop: spacing.sm }}>
@@ -69,15 +62,6 @@ export function IssueCard({ issue }: { issue: ComplianceIssue }) {
         />
         {/* The rule's grading, not this finding's strength. Labelled so. */}
         <Badge label={`Rule grading: ${issue.severity}`} tone="neutral" size="sm" />
-        <Badge
-          label={
-            issue.confidence === null
-              ? 'Confidence not reported'
-              : `Read at ${formatConfidence(issue.confidence)}`
-          }
-          tone="neutral"
-          size="sm"
-        />
       </Row>
 
       <Pressable onPress={() => setExpanded((open) => !open)} style={{ marginTop: spacing.md }}>
@@ -137,23 +121,22 @@ export function IssueCard({ issue }: { issue: ComplianceIssue }) {
             {issue.source.notificationDate}), in force from {issue.source.effectiveFrom}
           </Txt>
 
-          <Txt variant="overline" color={colors.textFaint} style={{ marginTop: spacing.md }}>
-            Legal text relied on
-          </Txt>
-          <Txt
-            variant="caption"
-            color={colors.textMuted}
-            style={{ marginTop: 3, fontStyle: 'italic' }}
-          >
-            {issue.legalText}
-          </Txt>
+          {/*
+            ── THE STATUTE ITSELF IS NOT FIELD READING ────────────────────────
 
-          <Txt variant="overline" color={colors.textFaint} style={{ marginTop: spacing.md }}>
-            How this system read it
-          </Txt>
-          <Txt variant="caption" color={colors.textMuted} style={{ marginTop: 3 }}>
-            {issue.machineInterpretation}
-          </Txt>
+            This carried two more blocks: the verbatim legal text the check
+            relied on, and a note on how the engine reads it. Both are true and
+            both belong to the rulebook screen, where an officer goes when they
+            have decided to read a rule.
+
+            Here they were between the inspector and the next tap. The panel
+            opens while a packet is in one hand, to answer "what did it find and
+            where" — and a paragraph of statute under that answer is scrolled
+            past every time. The citation above still names the provision, the
+            notification and the date it came into force, which is what makes
+            the finding checkable; the full text is one screen away in the
+            rulebook for anyone who wants it.
+          */}
         </Card>
       ) : null}
     </Card>

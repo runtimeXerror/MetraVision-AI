@@ -179,11 +179,19 @@ export function effectiveValue(field: ExtractedField): string | null {
 }
 
 /**
- * Fields the inspector still needs to decide on.
+ * Fields the inspector still needs to confirm before filing.
  *
- * The threshold is duplicated from the backend's rule catalogue so the UI can
- * mark a field for review without waiting for a round trip; the server remains
- * the authority for the resulting verdict.
+ * The camera's own doubt, and nothing else: a mandatory declaration it did not
+ * find, or a reading below the confidence threshold. The threshold is
+ * duplicated from the backend's rule catalogue so the UI can mark a field
+ * without waiting for a round trip; the server remains the authority for the
+ * resulting verdict, and re-runs the engine against whatever the inspector
+ * decides.
+ *
+ * A check the engine could not decide used to come back as `warning` and put
+ * its declaration here too. The engine no longer has that answer — a check
+ * passes, fails, or does not apply — so a field already decided by the
+ * inspector leaves this list and nothing puts it back.
  */
 export function fieldsNeedingReview(analysis: AIAnalysis | null): ExtractedField[] {
   if (!analysis) return [];

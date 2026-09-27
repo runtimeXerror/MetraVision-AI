@@ -46,6 +46,25 @@ export const passwordSchema = z
   .min(8, 'Password must be at least 8 characters.')
   .max(128, 'Password must be at most 128 characters.');
 
+/**
+ * An administrator enrolling an officer.
+ *
+ * No password field, deliberately. The badge number and a temporary password
+ * are generated on the server — see `createInspector` — so there is nothing
+ * here for the administrator to choose on the officer's behalf. Email is the
+ * only identifier they supply, because it is what the credentials will be sent
+ * to once mail is wired up.
+ */
+export const createInspectorSchema = z.object({
+  name: z.string().trim().min(2, 'Name is required.').max(120),
+  email: emailSchema,
+  role: z.enum(USER_ROLES).optional(),
+  phone: z.string().trim().max(20).optional(),
+  zone: z.string().trim().max(80).optional(),
+  district: z.string().trim().max(80).optional(),
+  state: z.string().trim().max(80).optional(),
+});
+
 /* ── Auth ─────────────────────────────────────────────────────────────────── */
 
 export const registerSchema = z.object({
@@ -173,7 +192,7 @@ export const listInspectionsQuerySchema = z.object({
   to: z.string().datetime({ offset: true }).optional(),
   /** Supervisors and admins only; ignored for inspectors. */
   inspectorId: objectIdSchema.optional(),
-  sort: z.enum(['newest', 'oldest', 'score']).default('newest'),
+  sort: z.enum(['newest', 'oldest']).default('newest'),
 });
 
 export type ListInspectionsQuery = z.infer<typeof listInspectionsQuerySchema>;

@@ -7,7 +7,7 @@ import type {
   ViolationDTO,
 } from '../types/domain';
 
-import { REVIEW_CONFIDENCE_THRESHOLD, findRequirement, resolveRuleSet, severityFor } from './ruleSets';
+import { findRequirement, resolveRuleSet, severityFor } from './ruleSets';
 
 /**
  * ── THE COMPLIANCE ABSTRACTION ──────────────────────────────────────────────
@@ -47,17 +47,6 @@ export function effectiveValue(field: ExtractedFieldDTO): string | null {
   return field.humanVerifiedValue ?? field.aiValue;
 }
 
-/** True when a field still needs an inspector decision. */
-export function needsReview(field: ExtractedFieldDTO): boolean {
-  if (field.reviewAction) return false;
-
-  const value = field.aiValue;
-  const missing = value === null || value.trim() === '';
-
-  if (missing && field.required) return true;
-  return field.confidence < REVIEW_CONFIDENCE_THRESHOLD;
-}
-
 export function evaluateCompliance(input: ComplianceInput): ComplianceResultDTO {
   const ruleSet = resolveRuleSet(input.category);
 
@@ -68,27 +57,19 @@ export function evaluateCompliance(input: ComplianceInput): ComplianceResultDTO 
       const value = effectiveValue(field);
       const missing = value === null || value.trim() === '';
 
-      // A value the inspector has confirmed is certain regardless of what the
-      // model's confidence was — the human is the authority here.
-      const confirmed = field.reviewAction !== undefined;
-      const uncertain = !missing && !confirmed && field.confidence < REVIEW_CONFIDENCE_THRESHOLD;
-
       return {
         code: `LMPCR-${field.name}`,
         title: `${field.label} declared`,
         ruleReference: requirement?.ruleReference ?? 'Rule 6(1)',
-        result: missing ? 'FAIL' : uncertain ? 'WARNING' : 'PASS',
-        // Graded per declaration — see `severityFor`. An unreadable field is
-        // always MINOR: the declaration is present, it just needs confirming.
+        result: missing ? 'FAIL' : 'PASS',
+        // Graded per declaration — see `severityFor`.
         severity: missing ? severityFor(field.name) : 'MINOR',
         category: missing ? 'MISSING_DECLARATION' : 'READABILITY',
         expected: requirement?.expectation ?? `${field.label} must be declared on the package.`,
         observed: value,
         message: missing
           ? `${field.label} could not be found on any captured face of the package.`
-          : uncertain
-            ? `${field.label} was read with low confidence and needs inspector confirmation.`
-            : `${field.label} is present and legible.`,
+          : `${field.label} is present and legible.`,
         relatedFieldNames: [field.name],
       } satisfies ComplianceCheckDTO;
     });
@@ -116,25 +97,11 @@ export function evaluateCompliance(input: ComplianceInput): ComplianceResultDTO 
       } satisfies ViolationDTO;
     });
 
-  const warningCount = checks.filter((check) => check.result === 'WARNING').length;
-
-  // A missing mandatory declaration is a finding regardless of how confident
-  // the reads on other fields were, so a violation outranks uncertainty.
-  let status: ComplianceStatus;
-  if (violations.length > 0) status = 'VIOLATION_DETECTED';
-  else if (warningCount > 0) status = 'REVIEW_REQUIRED';
-  else status = 'COMPLIANT';
-
-  const applicable = checks.filter((check) => check.result !== 'NOT_APPLICABLE');
-  const passed = applicable.filter((check) => check.result === 'PASS').length;
-  const score =
-    applicable.length === 0
-      ? 100
-      : Math.round(((passed + warningCount * 0.5) / applicable.length) * 100);
+  // One finding makes the package non-compliant; nothing else does.
+  const status: ComplianceStatus = violations.length > 0 ? 'VIOLATION_DETECTED' : 'COMPLIANT';
 
   return {
     status,
-    score,
     checks,
     violations,
     warnings: [],
@@ -150,6 +117,6 @@ export function evaluateCompliance(input: ComplianceInput): ComplianceResultDTO 
  * Kept here rather than in the controller so every write path — analyse,
  * review, finalize — agrees on what the record's status should be.
  */
-export function statusForVerdict(verdict: ComplianceStatus): 'COMPLIANT' | 'VIOLATION_DETECTED' | 'REVIEW_REQUIRED' {
+export function statusForVerdict(verdict: ComplianceStatus): 'COMPLIANT' | 'VIOLATION_DETECTED' {
   return verdict;
 }

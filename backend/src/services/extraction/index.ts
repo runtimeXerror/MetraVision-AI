@@ -1,4 +1,5 @@
 export {
+  contextSignalsFrom,
   extractInformation,
   extractionService,
   InformationExtractionService,
@@ -9,6 +10,7 @@ export type {
   ContextSignal,
   ExtractedFieldRecord,
   ExtractionResult,
+  LLMAssistance,
 } from './InformationExtractionService';
 export {
   canonicalUnit,
@@ -19,5 +21,5 @@ export {
   stripLabel,
   unifyCurrency,
 } from './normalise';
-export { ENGINE_FIELDS, FIELD_SPECS, INFORMATIONAL_FIELDS } from './patterns';
+export { ENGINE_FIELDS, FIELD_SPECS, INFORMATIONAL_FIELDS, quantityValue } from './patterns';
 export type { ExtractionMethod, FieldSpec } from './patterns';

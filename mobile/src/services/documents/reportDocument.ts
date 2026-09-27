@@ -1,5 +1,6 @@
 import {
   complianceStatusLabels,
+  complianceStatusTones,
   imageSideLabels,
   productCategoryLabels,
   severityLabels,
@@ -7,8 +8,8 @@ import {
 } from '../../constants/labels';
 import { effectiveValue } from '../../store/analysisStore';
 import type { ReportAmendment } from '../../store/reportDraftStore';
-import type { Report } from '../../types';
-import { formatConfidence, formatDate, formatDateTime } from '../../utils/format';
+import type { ComplianceStatus, Report } from '../../types';
+import { formatDate, formatDateTime } from '../../utils/format';
 
 import { documentShell, esc, keyValueTable, orDash, type DocumentMeta } from './html';
 
@@ -46,7 +47,7 @@ function metaFor(report: Report, amendment?: ReportAmendment): DocumentMeta {
 }
 
 /**
- * ── THREE WORDS, AND SILENCE ────────────────────────────────────────────────
+ * ── TWO WORDS, AND SILENCE ──────────────────────────────────────────────────
  *
  * This column said five things: Compliant, Not compliant, Needs review, Not
  * applicable, Not assessed. An officer reading a filed report could not tell
@@ -58,29 +59,63 @@ function metaFor(report: Report, amendment?: ReportAmendment): DocumentMeta {
  * declaration it concerns is still printed on the pack — country of origin on a
  * domestic package, for instance. But a reader is entitled to treat a Result
  * column as a verdict, and there is no verdict in "this rule was never in
- * play". Two labels were being spent saying nothing.
+ * play". Labels were being spent saying nothing.
  *
  * So the column says only what a reader can act on:
  *
  *     Compliant       the requirement was met
  *     Not compliant   it was not — this is a finding
- *     Needs review    the engine could not decide, a person must
  *
- * and where none of those is true it says nothing at all. A blank cell in a
- * column of verdicts is not an omission; it is the correct statement that there
- * is no verdict to give.
+ * and where neither is true it says nothing at all. A blank cell in a column
+ * of verdicts is not an omission; it is the correct statement that there is no
+ * verdict to give.
  */
 function resultCell(check?: { result: string }): string {
   switch (check?.result) {
     case 'pass':
-      return 'Compliant';
+      return '<span class="ok">Compliant</span>';
     case 'fail':
       return '<b class="bad">Not compliant</b>';
-    case 'warning':
-      return '<span class="review">Needs review</span>';
     default:
       return '';
   }
+}
+
+/**
+ * Which tone the determination block wears.
+ *
+ * Read off `complianceStatusTones`, the same map the screens colour their
+ * badges from, so the PDF an officer files and the screen they showed a dealer
+ * cannot disagree about what colour a determination is.
+ */
+const VERDICT_CLASS: Record<string, string> = {
+  success: 'ok',
+  danger: 'bad',
+};
+
+function verdictTone(status: ComplianceStatus): string {
+  return VERDICT_CLASS[complianceStatusTones[status]] ?? '';
+}
+
+/**
+ * The three counts, as a band under the determination.
+ *
+ * Printed before the schedule rather than inside it, because the first
+ * question a reader has is how many findings there are, and the answer was
+ * previously a sentence in the middle of the page five sections down.
+ */
+function snapshotBand(tally: { pass: number; fail: number; notApplicable: number }): string {
+  const tiles: Array<[string, string, number]> = [
+    ['ok', 'Compliant', tally.pass],
+    ['bad', 'Not compliant', tally.fail],
+    ['na', 'Not applicable', tally.notApplicable],
+  ];
+  return `<div class="snap">${tiles
+    .map(
+      ([tone, label, count]) =>
+        `<div class="${tone}"><div class="k">${esc(label)}</div><div class="v">${count}</div></div>`,
+    )
+    .join('')}</div>`;
 }
 
 /**
@@ -109,6 +144,17 @@ function signatureStamp(value: string): string {
   );
 }
 
+/**
+ * `6(1)(e)` out of `6(1)(e) — Retail sale price, as amended by G.S.R. 779(E)`.
+ *
+ * The long form is the citation the schedule printed; in a column beside the
+ * declaration it would wrap to three lines and push the value off the page.
+ * The provision number is the part a reader looks up.
+ */
+function shortRule(reference: string): string {
+  return reference.split('—')[0]?.trim() ?? reference;
+}
+
 /** A value with its superseded original printed underneath, where amended. */
 function amendedCell(current: string | null, original: string | null): string {
   // Red, because on a compliance report an absent mandatory declaration is the
@@ -134,8 +180,15 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
 
   /* Verdict */
   if (analysis) {
+    const checks = analysis.compliance.checks;
+    const tally = {
+      pass: checks.filter((check) => check.result === 'pass').length,
+      fail: checks.filter((check) => check.result === 'fail').length,
+      notApplicable: checks.filter((check) => check.result === 'not_applicable').length,
+    };
+
     sections.push(`
-      <div class="verdict">
+      <div class="verdict ${verdictTone(analysis.compliance.status)}">
         <div>
           <div class="label">Determination</div>
           <div class="status">${esc(complianceStatusLabels[analysis.compliance.status])}</div>
@@ -143,7 +196,8 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
             analysis.compliance.ruleSetLabel,
           )}</div>
         </div>
-      </div>`);
+      </div>
+      ${checks.length > 0 ? snapshotBand(tally) : ''}`);
   } else {
     sections.push(
       `<div class="note">This inspection was filed without a completed analysis. No determination is recorded against it.</div>`,
@@ -151,7 +205,7 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
   }
 
   /* Premises */
-  sections.push(`<h2>Where and who</h2>
+  sections.push(`<h2>Premises and inspecting officer</h2>
     <table class="kv">
       <tr><td>Business / shop</td><td>${amendedCell(
         amendment?.businessName ?? details.businessName,
@@ -173,20 +227,21 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
            the district and the state, and a PIN nobody can amend must not be
            drawn as though it had been. -->
       <tr><td>PIN code</td><td>${orDash(details.pincode ?? null)}</td></tr>
-      <tr><td>GPS fix</td><td>${orDash(
-        details.latitude !== undefined && details.longitude !== undefined
-          ? `${details.latitude.toFixed(5)}, ${details.longitude.toFixed(5)}${
-              details.accuracyM ? ` (±${Math.round(details.accuracyM)} m)` : ''
-            }`
-          : null,
-      )}</td></tr>
+      <!-- The GPS fix is not printed.
+
+           It is still on the record — the coordinate and its accuracy are
+           stored with the inspection and remain available to anyone auditing
+           it. What it is not is something a reader of this document can use:
+           the premises is identified by its address, and a decimal pair
+           beneath that address is either the same information in a form nobody
+           reads, or an em dash on every report filed without a fix. -->
       <tr><td>Inspected on</td><td>${esc(formatDateTime(inspection.createdAt))}</td></tr>
       <tr><td>Inspecting officer</td><td>${esc(inspection.inspectorName)}</td></tr>
     </table>`);
 
   /* Commodity */
   const category = amendment?.productCategory ?? details.productCategory ?? analysis?.category ?? 'other';
-  sections.push(`<h2>The product</h2>
+  sections.push(`<h2>About the product</h2>
     <table class="kv">
       <tr><td>Category</td><td>${amendedCell(
         productCategoryLabels[category],
@@ -223,6 +278,37 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
       }
     }
 
+    /**
+     * The provisions each declaration answers to, printed beside it.
+     *
+     * A reader looking at "Net quantity · 30 g · Compliant" has no way to tell
+     * which rule made that judgement, and the schedule that used to carry the
+     * answer has been taken out of the document — it restated these same rows
+     * in rule codes and ran to twenty entries, most of them recording that a
+     * provision did not reach the package at all.
+     *
+     * Rules that did not apply are left out on purpose. "Which rules does this
+     * declaration follow" is not answered by a provision that never reached
+     * it, and listing those is what made the schedule unreadable.
+     *
+     * A declaration with nothing here is informational — a brand or a batch
+     * code carries no mandatory provision of its own — and prints a dash
+     * rather than a blank, so an empty cell is never read as an omission.
+     */
+    const rulesByField = new Map<string, string[]>();
+    for (const check of analysis.compliance.checks) {
+      if (check.result === 'not_applicable') continue;
+      const reference = shortRule(check.ruleReference);
+      if (reference === '') continue;
+      for (const key of check.relatedFieldKeys) {
+        const found = rulesByField.get(key) ?? [];
+        if (!found.includes(reference)) found.push(reference);
+        rulesByField.set(key, found);
+      }
+    }
+    const ruleCell = (key: string): string =>
+      orDash(rulesByField.get(key)?.join(', ') ?? null);
+
     /*
      * ── SIXTEEN ROWS, TEN OF THEM SAYING NOTHING ────────────────────────
      *
@@ -240,49 +326,116 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
      * or the package carries a value for it, or it is mandatory for this
      * commodity — which is exactly the set an officer is checking.
      */
-    const rows = analysis.fields
-      .filter((field) => {
-        if (field.required) return true;
-        if (effectiveValue(field) !== null) return true;
-        return resultByField.has(field.key);
-      })
+    const listed = analysis.fields.filter((field) => {
+      if (effectiveValue(field) !== null) return true;
+      if (amendment?.fieldValues?.[field.key]) return true;
+      if (field.required) return true;
+
+      /*
+       * A rule that did not apply is not a reason to print a row.
+       *
+       * The test used to be `resultByField.has(field.key)`, which is satisfied
+       * by a check the engine recorded as NOT_APPLICABLE — and those are
+       * exactly the ones with nothing to say. A cosmetic carried rows for
+       * Dimensions, the vegetarian mark and the genetically-modified
+       * declaration on that basis: each printed "Not declared" against a blank
+       * Result, because the engine's answer for all three was that no rule of
+       * this set asks a cosmetic for them.
+       *
+       * On a document served on a dealer that reads as three accusations. The
+       * scan no longer records those declarations at all, but a report is
+       * issued from a stored inspection, and the ones already filed still
+       * carry them.
+       */
+      const check = resultByField.get(field.key);
+      return check !== undefined && check.result !== 'not_applicable';
+    });
+
+    /**
+     * ── WHAT WAS READ, AND THEN WHAT WAS NOT ────────────────────────────
+     *
+     * One table mixed them: a value, then "Not declared", then another value,
+     * in whatever order the extractor happened to fill its record. An officer
+     * reading it had to go down the column picking out which was which, and
+     * the two are not the same kind of thing at all. The first is the evidence
+     * — what this package says about itself. The second is the case, if there
+     * is one.
+     *
+     * So they are separated, and the evidence leads. A dealer served with this
+     * sees first what the inspector read off their packet, and then, under a
+     * heading that says so, the declarations that were looked for and not
+     * found.
+     */
+    const valueOf = (field: (typeof analysis.fields)[number]): string | null =>
+      amendment?.fieldValues?.[field.key] ?? effectiveValue(field);
+
+    const declared = listed.filter((field) => valueOf(field) !== null);
+    const missing = listed.filter((field) => valueOf(field) === null);
+
+    /*
+     * No "Source" column.
+     *
+     * Each row used to end with where its value came from — "Read
+     * automatically · 87%", "Confirmed by the officer" — and the read
+     * confidence was the part that got noticed. A percentage beside a legal
+     * declaration reads as a score against the dealer, which it is not; it
+     * qualifies the camera. Officer amendments still print in the value cell,
+     * under the value they replaced, which is where a reader looks for them,
+     * and the signature block carries the officer's attestation.
+     */
+    const declaredRows = declared
       .map((field, index) => {
         const recorded = effectiveValue(field);
         const amended = amendment?.fieldValues?.[field.key];
-        const value = amended ?? recorded;
-
-        const source = amended
-          ? 'Amended by the officer'
-          : field.reviewAction === 'edited'
-            ? 'Corrected by the officer'
-            : field.reviewAction === 'marked_unavailable'
-              ? 'Marked absent by the officer'
-              : field.reviewAction === 'accepted'
-                ? 'Confirmed by the officer'
-                : // Read confidence belongs here and only here. It qualifies an
-                  // automated reading and says nothing about a value a person
-                  // put their name to, so it was misleading as a column of its
-                  // own with a figure printed on every row.
-                  `Read automatically · ${formatConfidence(field.confidence)}`;
 
         return `<tr>
           <td class="num faint">${index + 1}</td>
-          <td>${esc(field.label)}${field.required ? '<br /><span class="faint">Mandatory</span>' : ''}</td>
-          <td>${amendedCell(value, amended ? recorded : null)}</td>
+          <td>${esc(field.label)}</td>
+          <td>${amendedCell(amended ?? recorded, amended ? recorded : null)}</td>
+          <td class="mono rule">${ruleCell(field.key)}</td>
           <td>${resultCell(resultByField.get(field.key))}</td>
-          <td class="faint">${source}</td>
         </tr>`;
       })
       .join('');
 
-    sections.push(`<h2>Declarations</h2>
-      <table>
-        <tr>
-          <th class="num">#</th><th>Declaration</th><th>Value of record</th>
-          <th>Result</th><th>Source</th>
-        </tr>
-        ${rows}
-      </table>`);
+    sections.push(`<h2>Declarations read from the package (${declared.length})</h2>
+      ${
+        declared.length === 0
+          ? `<p class="muted">No declaration could be read from the photographs supplied.</p>`
+          : `<table>
+              <tr>
+                <th class="num">#</th><th>Declaration</th><th>Value of record</th>
+                <th>Rule</th><th>Result</th>
+              </tr>
+              ${declaredRows}
+            </table>`
+      }`);
+
+    if (missing.length > 0) {
+      const missingRows = missing
+        .map(
+          (field, index) => `<tr>
+            <td class="num faint">${index + 1}</td>
+            <td>${esc(field.label)}</td>
+            <td class="mono rule">${ruleCell(field.key)}</td>
+            <td>${resultCell(resultByField.get(field.key))}</td>
+          </tr>`,
+        )
+        .join('');
+
+      sections.push(`<h2>Not declared (${missing.length})</h2>
+        <p class="muted">
+          Looked for on the package and not found. A declaration listed here is missing from the
+          photographs examined, which is not the same as being absent from the packet — check the
+          faces that were not photographed before acting on any of them.
+        </p>
+        <table>
+          <tr>
+            <th class="num">#</th><th>Declaration</th><th>Rule</th><th>Result</th>
+          </tr>
+          ${missingRows}
+        </table>`);
+    }
 
     /*
      * "Issues identified", not "Findings".
@@ -327,55 +480,45 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
               .join('')
       }`);
 
-    /**
-     * ── WHAT IS LEFT OF "CHECKS PERFORMED" ──────────────────────────────
+    /*
+     * ── THE COMPLIANCE SCHEDULE IS GONE ───────────────────────
      *
-     * The table is gone. Sixteen of its twenty rows restated, in rule codes,
-     * what the Declarations table above now says against each declaration in
-     * plain words; most of the rest recorded that a rule did not apply to this
-     * commodity, which is not a finding and does not belong in a document
-     * served on a dealer.
+     * It listed every check the engine ran — twenty rows on a typical
+     * cosmetic, and twelve of those recorded only that a provision did not
+     * reach the package. A reader looking for what was actually examined had
+     * to sort the six that mattered out of the rest, and the rows that did
+     * matter restated the declarations table above in rule codes.
      *
-     * What is kept is the part that had nowhere else to go: requirements that
-     * apply to the package as a whole rather than to any one declaration —
-     * principally the type-height and legibility rules of Rule 7 — and only
-     * where they were not satisfied. A rule that passed, or did not apply, adds
-     * nothing a reader can act on.
+     * The part worth keeping was the citation, so that moved: every
+     * declaration now prints the provisions it answers to in its own Rule
+     * column. The counts a reader needs are in the snapshot on page one.
      *
-     * Nothing adverse is lost by dropping the rest: an unsatisfied requirement
-     * is either a numbered finding above or is listed here.
+     * What is deliberately lost is the record of provisions that did not
+     * apply. That was the argument for printing the schedule in full — a
+     * dealer's interest in knowing a rule was considered and set aside — and
+     * it is a real one, but it does not earn a page and a half of a document
+     * that is served on them. The evaluation is kept on the inspection record
+     * either way, and the console shows it in full.
      */
-    const packageLevel = analysis.compliance.checks.filter(
-      (check) =>
-        check.relatedFieldKeys.length === 0 &&
-        check.result !== 'pass' &&
-        check.result !== 'not_applicable',
-    );
 
-    if (packageLevel.length > 0) {
-      sections.push(`<h2>Other checks</h2>
-        <table>
-          <tr><th>Requirement</th><th>Rule</th><th>Result</th></tr>
-          ${packageLevel
-            .map(
-              (check) => `<tr>
-                <td>${esc(check.title)}${
-                  check.message ? `<br /><span class="faint">${esc(check.message)}</span>` : ''
-                }</td>
-                <td class="mono">${esc(check.ruleReference)}</td>
-                <td>${resultCell(check)}</td>
-              </tr>`,
-            )
-            .join('')}
-        </table>`);
-    }
-
-    if (analysis.compliance.warnings.length > 0) {
-      sections.push(`<h2>Notes</h2>
-        <ul style="margin:0;padding-left:15px">
-          ${analysis.compliance.warnings.map((warning) => `<li>${esc(warning)}</li>`).join('')}
-        </ul>`);
-    }
+    /*
+     * ── THE NOTES BLOCK IS GONE ─────────────────────────────────────────
+     *
+     * It printed `compliance.warnings` as a bulleted list at the foot of the
+     * report, and by the time the compliance schedule above was complete there
+     * was nothing left in it that the reader had not already been told.
+     *
+     * The Rule 7 note is the clearest case. "A photograph cannot give a
+     * measurement in millimetres — check it against the packet with a rule" is
+     * exactly what the schedule prints under rules 7(2) and 7(3), against the
+     * requirements it qualifies. In the notes it appeared a second time, and
+     * on a report with two such checks it appeared twice more, word for word,
+     * detached from anything.
+     *
+     * A qualification belongs against the thing it qualifies. That is the same
+     * reasoning that moved read confidence into the Source column and took the
+     * standing attestation paragraph off the end of the document.
+     */
   }
 
   /* Evidence */
@@ -455,12 +598,11 @@ function reportBody(report: Report, amendment?: ReportAmendment): string {
    * and reviewed by the inspecting officer. Values the officer confirmed,
    * corrected or amended are marked as such in the declarations table."
    *
-   * Both halves were already on the page and better placed. The Source column
-   * of the Declarations table says, per declaration, whether it was read
-   * automatically or confirmed by the officer — which is the same claim made
-   * specifically rather than in general, and made where the reader is looking
-   * at the value it qualifies. And the signature block above carries the
-   * officer's name and the filing time, which is the actual attestation.
+   * Both halves were already on the page and better placed. An amended value
+   * prints its original beneath it in the Declarations table, where the reader
+   * is looking at the value it qualifies. And the signature block above
+   * carries the officer's name and the filing time, which is the actual
+   * attestation.
    *
    * A paragraph restating both, under the signature, on every report, is the
    * kind of boilerplate a reader learns to skip — and once they are skipping

@@ -27,7 +27,7 @@ import {
   severityLabels,
   violationCategoryLabels,
 } from '../constants/labels';
-import { colors, radius, spacing } from '../constants/theme';
+import { colors, spacing } from '../constants/theme';
 import { useAuthStore } from '../store/authStore';
 import { PERIOD_OPTIONS, useDashboardStore, type PeriodDays } from '../store/dashboardStore';
 import { useHistoryStore, type StatusFilter } from '../store/historyStore';
@@ -84,6 +84,13 @@ export function ReportsScreen() {
 
   const items = useHistoryStore((state) => state.items);
   /**
+   * A report exists once an inspection is filed and not before — the empty
+   * state below says as much. The register page carries drafts and analysed
+   * records too, and listing those here under "Filed reports" put a badge
+   * on a document that did not exist yet.
+   */
+  const filed = useMemo(() => items.filter((item) => item.status === 'finalized'), [items]);
+  /**
    * The filed-reports list is the inspection register, so it pages on the
    * register's own cursor rather than on a second one of its own. History is
    * driven by the same cursor, which means the two stay on the same page as
@@ -110,8 +117,9 @@ export function ReportsScreen() {
     const at = (status: string) =>
       overview?.distribution.find((slice) => slice.status === status)?.count ?? 0;
 
-    // Order is load-bearing: the amber and red fills must not touch. See the
-    // note at the head of `components/charts.tsx`.
+    // The verdicts first, then the drafts that have none yet — carried so the
+    // bar sums to the inspection count above it rather than to a denominator
+    // the reader cannot see.
     return [
       {
         key: 'violation',
@@ -126,13 +134,6 @@ export function ReportsScreen() {
         value: at('compliant'),
         color: colors.success,
         icon: complianceStatusIcons.compliant,
-      },
-      {
-        key: 'review_required',
-        label: complianceStatusLabels.review_required,
-        value: at('review_required'),
-        color: colors.warning,
-        icon: complianceStatusIcons.review_required,
       },
       {
         key: 'not_assessed',
@@ -206,19 +207,25 @@ export function ReportsScreen() {
 
             {busy || !summary ? (
               <>
-                <StatTileRowSkeleton />
+                <StatTileRowSkeleton wide />
                 <StatTileRowSkeleton style={{ marginTop: spacing.md }} />
               </>
             ) : (
               <>
+                {/* The total on its own row, the two rates beneath it — the
+                    same shape as Home. A "Pending Reviews" tile used to fill
+                    the fourth cell and was removed. */}
                 <Row gap={spacing.md} align="stretch">
                   <StatTile
+                    wide
                     label="Inspections"
                     value={summary.totalInspections}
                     icon="clipboard-outline"
                     tone="info"
                     onPress={() => openRecords('all')}
                   />
+                </Row>
+                <Row gap={spacing.md} align="stretch" style={{ marginTop: spacing.md }}>
                   <StatTile
                     label="Compliance Rate"
                     value={`${summary.complianceRate}%`}
@@ -226,8 +233,6 @@ export function ReportsScreen() {
                     tone="success"
                     onPress={() => openRecords('compliant')}
                   />
-                </Row>
-                <Row gap={spacing.md} align="stretch" style={{ marginTop: spacing.md }}>
                   <StatTile
                     label="Violations"
                     value={summary.violations}
@@ -235,49 +240,14 @@ export function ReportsScreen() {
                     tone="danger"
                     onPress={() => openRecords('violation')}
                   />
-                  <StatTile
-                    label="Pending Reviews"
-                    value={summary.pendingReviews}
-                    icon="hourglass-outline"
-                    tone="warning"
-                    onPress={() => openRecords('review_required')}
-                  />
                 </Row>
 
-                {/* Two rows, not three. "Average compliance score" stood
-                    between these and was removed rather than restyled.
-
-                    It was the mean of (checks passed / applicable checks) per
-                    record, and it failed three ways an enforcement figure
-                    cannot: it re-collapsed the rule engine's five states into
-                    one number; it buried the finding that matters, since one
-                    missing MRP out of twenty checks scores 95% and rule
-                    6(1)(e) is graded CRITICAL; and it partly measured the
-                    camera, because only COMPLIANT counts as a pass, so a
-                    lawful package shot from one face scored badly.
-
-                    It also sat two rows under the Compliance Rate tile, which
-                    is a different percentage arrived at a defensible way —
-                    compliant *records* over assessed records. Two percentages
-                    that disagree is worse than one.
-
-                    What is left earns its place: findings counts individual
-                    contraventions where the Violations tile counts records,
-                    and one package can breach three provisions; finalized is a
-                    workload figure an officer acts on. */}
-                <Card style={{ marginTop: spacing.md }}>
-                  <MetricRow
-                    label="Findings raised"
-                    value={summary.totalViolationFindings}
-                    hint="Individual contraventions, across all records"
-                  />
-                  <View style={styles.hairline} />
-                  <MetricRow
-                    label="Records finalized"
-                    value={`${summary.finalized} of ${summary.totalInspections}`}
-                    hint={`${summary.drafts} still in draft`}
-                  />
-                </Card>
+                {/* Nothing under the tiles. An "Average compliance score"
+                    stood here once and was removed for re-collapsing the
+                    engine's states into one number; the "Findings raised" and
+                    "Records finalized" card that replaced it went the same
+                    way — three figures an officer never acted on, between the
+                    counts and the split of them. */}
               </>
             )}
 
@@ -294,11 +264,6 @@ export function ReportsScreen() {
               <Card>
                 <StackedShareBar segments={segments} />
                 <ShareLegend segments={segments} style={{ marginTop: spacing.md }} />
-
-                <Txt variant="caption" color={colors.textFaint} style={{ marginTop: spacing.md }}>
-                  The compliance rate above is taken over assessed records only, so opening a draft
-                  cannot move it.
-                </Txt>
               </Card>
             )}
 
@@ -385,7 +350,7 @@ export function ReportsScreen() {
             {/* ── Filed reports ────────────────────────────────────────── */}
             <SectionHeader title="Filed reports" style={{ marginTop: spacing.xl }} />
 
-            {items.length === 0 ? (
+            {filed.length === 0 ? (
               <Card>
                 <EmptyState
                   icon="document-text-outline"
@@ -396,7 +361,7 @@ export function ReportsScreen() {
             ) : (
               <>
               <Card padded={false}>
-                {items.map((inspection, index) => (
+                {filed.map((inspection, index) => (
                   <Pressable
                     key={inspection.id}
                     onPress={() =>
@@ -416,7 +381,11 @@ export function ReportsScreen() {
                           {inspection.businessName}
                         </Txt>
                         <Row gap={spacing.sm} style={{ marginTop: 6 }}>
-                          <ComplianceBadge status={inspection.complianceStatus} size="sm" />
+                          {/* A filed record always carries its verdict; the
+                              guard is for the type, not for a case. */}
+                          {inspection.complianceStatus ? (
+                            <ComplianceBadge status={inspection.complianceStatus} size="sm" />
+                          ) : null}
                           <Txt variant="caption" color={colors.textFaint}>
                             {formatDate(inspection.createdAt)}
                           </Txt>
@@ -447,32 +416,6 @@ export function ReportsScreen() {
       </Body>
 
     </Screen>
-  );
-}
-
-function MetricRow({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-}) {
-  return (
-    <Row justify="space-between" gap={spacing.md} style={{ paddingVertical: spacing.md }}>
-      <View style={{ flex: 1 }}>
-        <Txt variant="body" color={colors.textMuted}>
-          {label}
-        </Txt>
-        {hint ? (
-          <Txt variant="caption" color={colors.textFaint} style={{ marginTop: 2 }}>
-            {hint}
-          </Txt>
-        ) : null}
-      </View>
-      <Txt variant="bodyStrong">{value}</Txt>
-    </Row>
   );
 }
 

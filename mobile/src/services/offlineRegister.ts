@@ -30,11 +30,8 @@ import { readCached, writeCached, RECORD_POOL_LIMIT, type CachedValue } from './
  *   - **Search** covers the reference, the business and the product. The server
  *     also matches the premises address, which the summary does not carry. A
  *     search for a street name finds fewer records offline than online.
- *   - **The status filter** is mirrored exactly, which takes a little care.
- *     `matchesStatus` below reproduces the server's rule value for value; the
- *     awkward one is "review required", where the summary has thrown away the
- *     distinction the server filters on and it has to be reconstructed from two
- *     fields. The comment there explains how.
+ *   - **The status filter** is mirrored exactly: a chip matches the verdict on
+ *     the record, which is the field the server filters on too.
  *
  * The search gap is not papered over either. Every screen labels a cached
  * result as cached, and an officer who needs the authoritative answer is one
@@ -136,27 +133,12 @@ export function queryRegisterPool(
 }
 
 /**
- * One record against one status chip, matching the server value for value.
- *
- * Two of the three shared values resolve to the verdict and one to the work
- * outstanding: "compliant" and "violation" are findings that survive filing,
- * "review required" is a queue that empties as declarations are answered.
- * Reproducing the server's rule here is what stops the same chip returning
- * different records depending on whether the officer had signal.
+ * One record against one status chip, matching the server value for value:
+ * the verdict on the record, which survives filing. A draft has no verdict
+ * and matches no chip.
  */
 function matchesStatus(record: InspectionSummary, status: ComplianceStatus): boolean {
-  if (status !== 'review_required') return record.complianceStatus === status;
-
-  /*
-   * The server's condition exactly: the analysis asked for review, and at least
-   * one declaration still has no ruling on it.
-   *
-   * This used to test `record.status === 'pending_review'` — the workflow
-   * position — which meant a record dropped out of the queue the moment it was
-   * filed, whether or not anyone had answered the declarations it was filed
-   * with. Filing is not reviewing, and the queue now says so.
-   */
-  return record.complianceStatus === 'review_required' && record.pendingDeclarations > 0;
+  return record.complianceStatus === status;
 }
 
 /**
@@ -172,17 +154,12 @@ export function statsFromPool(pool: InspectionSummary[]): {
   totalInspections: number;
   compliant: number;
   violations: number;
-  pendingReviews: number;
   averageScore: number;
 } {
   return {
     totalInspections: pool.length,
-    compliant: pool.filter((record) => record.complianceStatus === 'compliant').length,
-    violations: pool.filter((record) => record.complianceStatus === 'violation').length,
-    // The same condition `matchesStatus` uses, so this count and the list
-    // behind it can never disagree — including the part that keeps a filed
-    // inspection in the queue while declarations on it are still unanswered.
-    pendingReviews: pool.filter((record) => matchesStatus(record, 'review_required')).length,
+    compliant: pool.filter((record) => matchesStatus(record, 'compliant')).length,
+    violations: pool.filter((record) => matchesStatus(record, 'violation')).length,
     // Not derivable from a summary — it carries no score — and a zero here is
     // rendered as "—" rather than as an average of nothing.
     averageScore: 0,

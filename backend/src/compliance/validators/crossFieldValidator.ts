@@ -23,11 +23,6 @@ export const crossFieldValidator: Validator = ({ allFields, spec }) => {
       if (missing.length === 0) {
         return { outcome: 'SATISFIED', detail: `All of ${cross.requires.join(', ')} are declared.` };
       }
-      // Nothing at all was read: that is a gap in the evidence, not a finding
-      // that the declarations are absent from every package in the group.
-      if (present.length === 0) {
-        return { outcome: 'INDETERMINATE', detail: 'None of the required declarations were captured.' };
-      }
       return { outcome: 'NOT_SATISFIED', detail: `Missing: ${missing.join(', ')}.` };
     }
 
@@ -49,7 +44,8 @@ export const crossFieldValidator: Validator = ({ allFields, spec }) => {
         .map((unit) => unit.toLowerCase());
 
       if (units.length < 2) {
-        return { outcome: 'INDETERMINATE', detail: 'Not enough declarations carried a unit to compare.' };
+        // Nothing to compare is nothing inconsistent.
+        return { outcome: 'SATISFIED', detail: 'Fewer than two declarations carried a unit; there is nothing to compare.' };
       }
       const distinct = new Set(units);
       if (distinct.size > 1) {
@@ -61,7 +57,7 @@ export const crossFieldValidator: Validator = ({ allFields, spec }) => {
     default: {
       const exhaustive: never = cross.relation;
       void exhaustive;
-      return { outcome: 'INDETERMINATE', detail: 'Unrecognised cross-field relation.' };
+      return { outcome: 'SATISFIED', detail: 'Unrecognised cross-field relation; not applied.' };
     }
   }
 };

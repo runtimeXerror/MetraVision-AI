@@ -54,7 +54,7 @@ export function Sidebar({
           <ScanLine className="h-5 w-5" strokeWidth={2.25} aria-hidden />
         </span>
         <div className={cn('min-w-0', collapsed && 'lg:hidden')}>
-          <p className="truncate text-sm font-semibold text-rail-ink">LM Compliance</p>
+          <p className="truncate text-sm font-semibold text-rail-ink">MetraVision AI</p>
           <p className="truncate text-2xs text-rail-muted">Legal Metrology</p>
         </div>
 

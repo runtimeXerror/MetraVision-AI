@@ -21,13 +21,9 @@ import { barListBlock, documentShell, esc, shareBlock, type DocumentMeta, type S
  */
 
 /**
- * The segment order is load-bearing and matches the on-screen chart.
- *
- * "Violation" red and "review required" amber are only ΔE 10 apart to a
- * normal-sighted reader — too close for two touching segments. Seating the
- * green between them lifts the worst adjacent pair to ΔE 20. Every segment also
- * carries its label and count in the table beside the bar, which is what makes
- * the block readable when it is printed in greyscale.
+ * The segment order matches the on-screen chart. Every segment also carries
+ * its label and count in the table beside the bar, which is what makes the
+ * block readable when it is printed in greyscale.
  */
 function shareParts(overview: DashboardOverview): SharePart[] {
   const at = (status: string) =>
@@ -36,11 +32,6 @@ function shareParts(overview: DashboardOverview): SharePart[] {
   return [
     { label: complianceStatusLabels.violation, value: at('violation'), color: colors.danger },
     { label: complianceStatusLabels.compliant, value: at('compliant'), color: colors.success },
-    {
-      label: complianceStatusLabels.review_required,
-      value: at('review_required'),
-      color: colors.warning,
-    },
     { label: 'Not yet assessed', value: at('not_assessed'), color: colors.neutral },
   ];
 }
@@ -63,14 +54,13 @@ function metaFor(overview: DashboardOverview, inspector?: Inspector | null): Doc
 
 function kpiBlock(overview: DashboardOverview): string {
   const s = overview.summary;
+  // The same three figures as the tiles on the Reports tab, and no more: the
+  // issue, filing and officer counts that used to follow them were dropped
+  // from the screen and are dropped here for the same reason.
   const tiles: Array<[string, string | number]> = [
     ['Inspections', s.totalInspections],
     ['Compliance rate', `${s.complianceRate}%`],
     ['Violations', s.violations],
-    ['Pending review', s.pendingReviews],
-    ['Issues raised', s.totalViolationFindings],
-    ['Finalized', s.finalized],
-    ['Active officers', s.activeInspectors],
   ];
 
   return `<div class="kpis">${tiles
@@ -140,12 +130,7 @@ function dashboardBody(overview: DashboardOverview, inspector?: Inspector | null
 
   sections.push(`<h2>Position at a glance</h2>${kpiBlock(overview)}`);
 
-  sections.push(`<h2>Compliance status</h2>${shareBlock(shareParts(overview))}
-    <p class="faint" style="margin-top:6px">
-      The compliance rate is calculated over assessed records only. Records still awaiting
-      analysis are shown as "not yet assessed" and are excluded from the rate, so opening a
-      draft cannot move it.
-    </p>`);
+  sections.push(`<h2>Compliance status</h2>${shareBlock(shareParts(overview))}`);
 
   sections.push(`<h2>Enforcement activity over the period</h2>${trendBlock(overview)}`);
 
@@ -188,7 +173,7 @@ function dashboardBody(overview: DashboardOverview, inspector?: Inspector | null
         : `<table>
             <tr>
               <th>Officer</th><th class="num">Filed</th><th class="num">Compliant</th>
-              <th class="num">Violations</th><th class="num">Pending</th><th class="num">Rate</th><th>Last activity</th>
+              <th class="num">Violations</th><th class="num">Rate</th><th>Last activity</th>
             </tr>
             ${active
               .map(
@@ -199,7 +184,6 @@ function dashboardBody(overview: DashboardOverview, inspector?: Inspector | null
                   <td class="num">${row.totalInspections}</td>
                   <td class="num">${row.compliant}</td>
                   <td class="num">${row.violations}</td>
-                  <td class="num">${row.pendingReviews}</td>
                   <td class="num">${row.complianceRate}%</td>
                   <td>${esc(formatDate(row.lastActivityAt))}</td>
                 </tr>`,

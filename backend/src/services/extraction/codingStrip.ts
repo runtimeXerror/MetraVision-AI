@@ -141,7 +141,30 @@ const AMOUNT = /\d{1,3}(?:[,\d]{0,9})?[.,][\s'`:.]{0,3}\d{2}\b|\b\d{2,5}\b/;
 function cleanAmount(text: string): string {
   return text.replace(/([.,])[\s'`:.]{0,3}(\d{2})\b/, '.$2').replace(/\s+/g, '');
 }
-const DATE = /\b\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*\d{2,4}\b|\b\d{1,2}\s*[/.\-]\s*\d{4}\b/;
+/**
+ * A date, in the forms a packing line prints one.
+ *
+ * The last arm is `MM/YY`, and it is here because of what its absence did. A
+ * manufacturing date printed `03/2026` came off a soft frame as `03/20`, which
+ * no arm of this pattern matched — so it was not a date, and `CODE`'s second
+ * arm, two runs joined by a slash, took it happily. The batch number of a
+ * cleanser stamped `AAAA557` was recorded as `03/20`.
+ *
+ * That is the failure this constant's own note warned about, arriving through
+ * the one date form it did not list. `hasShape` bars a date from being read as
+ * a code or an amount, so every shape that is not a date is protected by
+ * naming the form here — and where a package really does print `12/34` as a
+ * lot number, the batch is asked of the inspector, which the note beside
+ * `CODE` already calls the safer of the two mistakes.
+ *
+ * It is narrower than the arms above it in two ways, and both are load-bearing.
+ * The separator cannot be a full stop, and the month must be a month: written
+ * as loosely as they are, `MM/YY` also describes `3.38` — the fluid ounces
+ * beside a net quantity — and `100 ml / 3.38 fl. oz.` was then a date, which
+ * a manufacturing-date header took in preference to the real one.
+ */
+const DATE =
+  /\b\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*\d{2,4}\b|\b\d{1,2}\s*[/.\-]\s*\d{4}\b|\b(?:0?[1-9]|1[0-2])\s*[/\-]\s*\d{2}\b/;
 /**
  * A batch or lot code.
  *
@@ -373,13 +396,44 @@ const COLUMN_HEADERS: HeaderSpec[] = [
   // line is a manufacturing-date header, and being printed higher up the panel
   // it is found first — so it took the field, and the real `MFG. DATE` two
   // inches below was discarded as a duplicate.
-  { field: 'manufacturing_date', shape: 'date', pattern: /\b(?:mfg|mfd|manufactur\w*|pkd|packed|packing)\b(?![^a-z0-9]*by\b)[^a-z]*(?:date)?/i },
+  /*
+   * `manufactur…` spelled out has to bring the word "date" with it.
+   *
+   * Spelled out and on its own it is not a header, it is prose — and the prose
+   * it appears in is a declaration of its own. "Use before 18 months from the
+   * date of manufacturing." wraps onto a second line reading `manufacturing.`,
+   * which matched, became the manufacturing-date header of the block, and took
+   * the value the real `Mfg Date` two lines below was waiting for.
+   *
+   * The abbreviations keep standing alone. `MFG`, `MFD` and `PKD` are printed
+   * as headers and appear in nothing else on a package.
+   */
+  {
+    field: 'manufacturing_date',
+    shape: 'date',
+    pattern:
+      /\b(?:mfg|mfd|pkd|packed|packing)\b(?![^a-z0-9]*by\b)[^a-z]*(?:date)?|\bmanufactur\w*\b(?![^a-z0-9]*by\b)[^a-z]*\bdate\b|\bdate\s+of\s+manufactur\w*/i,
+  },
   { field: 'best_before', shape: 'date', pattern: /\b(?:use\s*by|use\s*before|best\s*before|expiry|exp)\b/i },
   { field: 'batch_number', shape: 'code', pattern: /\b(?:batch|lot)\s*(?:no|number|code)?\b/i },
   // `USP` before `MRP`: on this pack both share a line — `ALL TAXES); USP` —
   // and the unit price is the one that line actually announces.
   { field: 'unit_sale_price', shape: 'unitPrice', pattern: /\bu\s?s\s?p\b|\bunit\s*(?:sale|retail)?\s*price\b/i },
-  { field: 'mrp', shape: 'amount', pattern: /\bm\.?\s?r\.?\s?p\b|\bmaximum\s+retail\s+price\b/i },
+  /*
+   * `[₹?t]?` is the rupee sign, as a camera renders it.
+   *
+   * The header is printed `MRP ₹` and came back `MRPT` from one frame and
+   * `MRP?` from another. `\bm.?\s?r.?\s?p\b` needs a word boundary after the
+   * p, which `MRPT` does not give it — so the sharpest photograph of the panel
+   * contributed no MRP header at all, the column reader saw two headers where
+   * it needs three, and the whole block went unread in the one frame that had
+   * resolved every value on it.
+   */
+  {
+    field: 'mrp',
+    shape: 'amount',
+    pattern: /\bm\.?\s?r\.?\s?p\.?\s*[₹?t]?\b|\bmaximum\s+retail\s+price\b/i,
+  },
 ];
 
 interface ColumnEntry {
@@ -387,6 +441,32 @@ interface ColumnEntry {
   spec: HeaderSpec;
   top: number;
   centreX: number;
+}
+
+/**
+ * ── A PRICE IS ITS WORDING, NOT JUST ITS FIGURE ─────────────────────────────
+ *
+ * Every other reader in this stage hands the rule engine the line as printed,
+ * because rule 6(1)(e) is about how the declaration reads: it must carry an
+ * Indian currency marker, and between 2018 and 2024 it had to name itself a
+ * maximum retail price. A bare `299.00` answers none of that.
+ *
+ * A two-column block splits the declaration across two OCR lines — the header
+ * `MRP ₹` on the left, the figure on the right — and this reader was handing on
+ * only the second. The currency validator then found no marker in `299.00`,
+ * which is true of the string and false of the package, and a ₹299 bottle of
+ * cleanser was reported as declaring its price in the wrong form.
+ *
+ * Joining them back together is what the block prints. Only the two shapes
+ * whose rules inspect wording are joined; a batch code and a date are the value
+ * and nothing else, and prefixing their headers would put `Batch No :` inside
+ * the batch number.
+ */
+function asPrinted(shape: Shape, header: string, value: string): string {
+  if (shape !== 'amount' && shape !== 'unitPrice') return value;
+
+  const label = header.trim().replace(/[\s:.\-]+$/, '');
+  return label === '' ? value : `${label} ${value}`;
 }
 
 function leftOf(line: StripLine): number {
@@ -481,51 +561,77 @@ export function readLabelColumn(lines: StripLine[]): StripReading[] {
   );
 
   /*
-   * Which side? Counted rather than assumed.
+   * Which side? Decided by reading each one, not by counting shapes on it.
    *
    * A label block reads label-then-value, so the values are normally to the
-   * right. They are to the *left* here, because this coding block is printed
-   * upside down relative to the rest of the pack — the sidecar turned the
-   * photograph upright by the majority of its text, and this block was in the
-   * minority. Rather than bet on either, both sides are scored by how many
-   * lines carry a shape some header is asking for, and the better side wins.
+   * right. They are to the *left* on a pack whose coding block is printed
+   * upside down relative to the rest of it — the sidecar turns the photograph
+   * upright by the majority of its text, and that block is in the minority.
+   * So neither side can be assumed and both have to be tried.
+   *
+   * They used to be compared by counting how many lines carried a shape some
+   * header was asking for, which is a test the wrong side passes easily. On
+   * the back of a cleanser the left of the panel is the marketer's and the
+   * manufacturer's addresses: eleven lines, among them a mobile number that is
+   * an amount, a PIN code that is a lot code, and a licence number that is a
+   * date. It out-counted the four-line value column beside the headers, and
+   * the block was read off the addresses — MRP `91` from `+91 97723 46555`,
+   * batch `302022` from `Jaipur - 302022`.
+   *
+   * Pairing is the honest test, because it is the thing being decided. Each
+   * side is paired against the headers in order, and the side that answers
+   * more of them wins; a tie goes to the side whose lines sit in a narrower
+   * column, since a value column is narrow and a block of prose is not.
    */
-  const wanted = new Set(headers.map((entry) => entry.spec.shape));
   const labelCentre =
     headers.reduce((sum, entry) => sum + entry.centreX, 0) / headers.length;
 
-  const score = (candidates: StripLine[]): number =>
-    candidates.filter((line) =>
-      [...wanted].some((shape) => hasShape(line.text, shape)),
-    ).length;
-
   const left = beside.filter((line) => centreXOf(line) < labelCentre);
   const right = beside.filter((line) => centreXOf(line) > labelCentre);
-  const values = score(right) >= score(left) ? right : left;
 
-  if (values.length === 0) return [];
+  const readingsFrom = (candidates: StripLine[]): StripReading[] => {
+    const values = [...candidates].sort((a, b) => a.box![1] - b.box![1]);
+    const readings: StripReading[] = [];
+    let cursor = 0;
 
-  values.sort((a, b) => a.box![1] - b.box![1]);
+    /* Nth label, nth value of the shape it asks for. */
+    for (const header of headers) {
+      for (let index = cursor; index < values.length; index += 1) {
+        const candidate = values[index]!;
+        if (!hasShape(candidate.text, header.spec.shape)) continue;
 
-  /* Nth label, nth value of the shape it asks for. */
-  const readings: StripReading[] = [];
-  let cursor = 0;
+        const value = valueOfShape(candidate.text, header.spec.shape);
+        if (value === null) continue;
 
-  for (const header of headers) {
-    for (let index = cursor; index < values.length; index += 1) {
-      const candidate = values[index]!;
-      if (!hasShape(candidate.text, header.spec.shape)) continue;
-
-      const value = valueOfShape(candidate.text, header.spec.shape);
-      if (value === null) continue;
-
-      readings.push({ field: header.spec.field, value, lines: [header.line, candidate] });
-      cursor = index + 1;
-      break;
+        readings.push({
+          field: header.spec.field,
+          value: asPrinted(header.spec.shape, header.line.text, value),
+          lines: [header.line, candidate],
+        });
+        cursor = index + 1;
+        break;
+      }
     }
+
+    return readings;
+  };
+
+  /** How far apart the lines' centres are. A value column is a narrow one. */
+  const columnWidth = (candidates: StripLine[]): number =>
+    candidates.length === 0 ? Infinity : spread(candidates.map(centreXOf));
+
+  const fromRight = readingsFrom(right);
+  const fromLeft = readingsFrom(left);
+
+  let values: StripReading[];
+
+  if (fromRight.length !== fromLeft.length) {
+    values = fromRight.length > fromLeft.length ? fromRight : fromLeft;
+  } else {
+    values = columnWidth(right) <= columnWidth(left) ? fromRight : fromLeft;
   }
 
-  return readings;
+  return values;
 }
 
 export function readCodingStrip(lines: StripLine[]): StripReading[] {

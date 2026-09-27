@@ -657,9 +657,25 @@ export const RULE_EXCEPTIONS: RuleException[] = [
     legalText:
       'Provided further that declaration of unit sale price is not required for the pre-packaged commodities in which retail sale price is equal to the unit sale price.',
     machineInterpretation:
-      'Where the retail sale price is the unit sale price — a one-kilogram pack, say — no separate unit price is required. This fires only when the inspection record says the two are equal; the engine does not infer it by comparing two independent reads.',
+      'Where the retail sale price is the unit sale price no separate unit price is required. That is the case, by the sub-rule\'s own units, for a package whose net quantity is exactly one of the unit the price would be stated per: one kilogram, one litre, one metre, or one piece — a single garment, a single pen, one pair. The exception fires on such a quantity, or where the inspection record states outright that the two prices are equal. It does not compare two price reads to find out.',
     interpretationStatus: 'REVIEWED',
-    condition: { op: 'equals', path: 'productContext.commodityType', value: 'rsp_equals_unit_price' },
+    condition: {
+      op: 'any',
+      conditions: [
+        { op: 'equals', path: 'productContext.commodityType', value: 'rsp_equals_unit_price' },
+        {
+          op: 'all',
+          conditions: [
+            { op: 'equals', path: 'productContext.quantity', value: 1 },
+            {
+              op: 'in',
+              path: 'productContext.quantityUnit',
+              values: ['kg', 'kilogram', 'l', 'litre', 'liter', 'm', 'metre', 'meter', 'n', 'no', 'nos', 'pc', 'pcs', 'piece', 'pieces', 'pair', 'set', 'unit', 'units'],
+            },
+          ],
+        },
+      ],
+    },
     effect: 'NOT_APPLICABLE',
     effectiveFrom: '2024-01-01',
     effectiveTo: null,

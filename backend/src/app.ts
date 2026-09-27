@@ -87,8 +87,8 @@ export function createApp(): Express {
     res.json({
       success: true,
       data: {
-        name: 'SIH26034 Compliance Scanner API',
-        phase: 'Phase 2',
+        name: 'MetraVision AI API',
+        phase: 'Phase 4',
         docs: '/api/health',
       },
     });

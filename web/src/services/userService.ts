@@ -1,6 +1,34 @@
 import type { InspectorActivity, User } from '@/types/api';
 
-import { get } from './client';
+import { get, post } from './client';
+
+export interface EnrolInspectorInput {
+  name: string;
+  email: string;
+  role?: 'INSPECTOR' | 'SUPERVISOR' | 'ADMIN';
+  phone?: string;
+  district?: string;
+  state?: string;
+}
+
+export interface EnrolledInspector {
+  user: User;
+  /** Returned once and never stored in the clear. See `createInspector`. */
+  temporaryPassword: string;
+  /** `NOT_SENT` until the mail step exists; the console hands it over instead. */
+  delivery: 'NOT_SENT' | 'SENT';
+}
+
+/**
+ * Enrols an officer.
+ *
+ * No password is sent: the badge number and a temporary password are generated
+ * on the server, and the password comes back in this one response because there
+ * is nowhere else it can be read from afterwards.
+ */
+export function createInspector(input: EnrolInspectorInput): Promise<EnrolledInspector> {
+  return post<EnrolledInspector>('/users', input);
+}
 
 /**
  * Users.

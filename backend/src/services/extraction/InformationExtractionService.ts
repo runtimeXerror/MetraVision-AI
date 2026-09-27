@@ -5,7 +5,7 @@ import { firstAmount, normaliseLine, normaliseText, repairDigits, stripLabel } f
 import type { ProductCategory } from '../../types/domain';
 
 import { categoryFrom, commodityNounIn, type CommodityMatch } from './commodity';
-import { readCodingStrip, readLabelColumn } from './codingStrip';
+import { readCodingStrip, readLabelColumn, type StripReading } from './codingStrip';
 import {
   ALL_LABELS,
   FIELD_SPECS,
@@ -124,9 +124,42 @@ export interface ExtractionResult {
    * no category between them.
    */
   category?: { value: ProductCategory; confidence: number };
+  /**
+   * What a language model made of the same text, when one was asked.
+   *
+   * Absent unless `LLM_PROVIDER` names one. Attached beside the extraction
+   * rather than merged into `fields`, because a model's reading and a matched
+   * printed label are not the same kind of claim and the report has to be able
+   * to show which is which. Written by `applySuggestions`, never by this
+   * service — the extractor stays deterministic.
+   */
+  llm?: LLMAssistance;
   processingTimeMs: number;
   /** Total lines the OCR stage produced across every image. */
   lineCount: number;
+}
+
+/** A model's reading of the OCR text, carried for the report and the inspector. */
+export interface LLMAssistance {
+  provider: string;
+  model: string;
+  processingTimeMs: number;
+  /**
+   * True when the model's reading is what `fields` holds. False when the
+   * model was asked and gave nothing — quota, outage, an unparseable answer —
+   * and the pattern extractor's reading stands instead.
+   */
+  adopted: boolean;
+  /** Every declaration the model read, with the OCR text it repaired where it did. */
+  suggestions: Array<{
+    field: string;
+    label: string;
+    value: string;
+    /** The OCR text this was read from, when the model changed it. */
+    correctedFrom?: string;
+    /** True when this reading is the value on the record. */
+    applied: boolean;
+  }>;
 }
 
 /* ── Working line record ──────────────────────────────────────────────────── */
@@ -263,9 +296,52 @@ function prominenceIndex(lines: Line[]): Map<Line, number> {
   return index;
 }
 
+/**
+ * ── THE KEYS INSIDE A BLOCK ─────────────────────────────────────────────────
+ *
+ * A consumer-care declaration is printed as a little block of its own keys:
+ *
+ *     For Consumer Complaints / Queries
+ *     Address : Same as Marketed By Address
+ *     Mobile  : +91 97723 46555
+ *     Email ID: help@beminimalist.co
+ *
+ * Every line after the first is a key, and the second one contains the words
+ * "Marketed By" — which is a label form of the manufacturer declaration. So
+ * the continuation stopped there, the consumer care details were recorded as
+ * the heading alone, and the rule engine reported a package that prints an
+ * address, a mobile number and an e-mail address as not declaring any of them.
+ *
+ * These four keys never open a declaration of their own: no rule is satisfied
+ * by "Address" or "Mobile" standing alone, and each of them is only ever a row
+ * inside somebody else's block.
+ */
+const BLOCK_KEY = /^\s*(?:address|mobile|phone|tel(?:ephone)?|e-?mail(?:\s*id)?|contact|toll[\s-]*free)\b\s*[:.\-]/i;
+
 /** True when a line opens a different declaration, ending a continuation. */
 function startsNewDeclaration(text: string): boolean {
+  if (BLOCK_KEY.test(text)) return false;
   return ALL_LABELS.some((label) => label.test(text));
+}
+
+/**
+ * A line that introduces the block below it rather than continuing the one
+ * above.
+ *
+ * `startsNewDeclaration` only knows the headings this stage has a field for,
+ * so a back-of-pack heading it does not model — `Product Information:`,
+ * `Directions For Use:` — read as more of the previous declaration and was
+ * absorbed into it. That is how a consumer care line came back as
+ * `Email ID :help@beminimalist.co, Product Information:`.
+ *
+ * What separates the two is where the colon falls. A heading spends its whole
+ * line naming something and leaves the value to the lines beneath it, so its
+ * colon is the last thing on it; a wrapped address carries content wherever
+ * its punctuation lands. That test needs no vocabulary, which is the point —
+ * it holds for the headings nobody has thought of yet.
+ */
+function isHeading(text: string): boolean {
+  return /:\s*$/.test(text.trim());
 }
 
 /**
@@ -548,11 +624,24 @@ function lineBelow(line: Line, lines: Line[]): Line | undefined {
     const box = boxOf(candidate);
     if (!box) continue;
 
-    const [bx1, by1, bx2] = readingBox(box, orientation);
+    const [bx1, by1, bx2, by2] = readingBox(box, orientation);
     if (overlapRatio(ax1, ax2, bx1, bx2) < SAME_COLUMN) continue;
 
+    /*
+     * Below is judged by the centres, not by the tops.
+     *
+     * A recogniser's line boxes are generous and neighbouring lines routinely
+     * overlap, so "starts after the one above ends" is not a property printed
+     * text reliably has. On a cleanser's back panel `Akums Drugs &
+     * Pharmaceuticals Ltd.` opened 43 pixels above the bottom of the
+     * `Manufactured By` heading it sits under, was rejected as not below it,
+     * and the manufacturer's declaration was recorded from the street address
+     * with the company's name missing from it.
+     */
+    if ((by1 + by2) / 2 <= (ay1 + ay2) / 2) continue;
+
     const gap = by1 - ay2;
-    if (gap < -height / 2 || gap > MAX_GAP_BELOW * height) continue;
+    if (gap > MAX_GAP_BELOW * height) continue;
     if (!best || gap < best.gap) best = { line: candidate, gap };
   }
 
@@ -561,6 +650,56 @@ function lineBelow(line: Line, lines: Line[]): Line | undefined {
 
 /** An address is complete once a PIN code has been seen. */
 const HAS_PIN = /\b\d{6}\b/;
+
+/**
+ * Confidences this close apart are the same confidence.
+ *
+ * Two frames of one panel do not resolve a declaration to the third decimal
+ * place, and treating 0.981 as better evidence than 0.979 would decide the
+ * question by noise. Inside the band the reading is chosen on completeness
+ * instead, which is the thing that actually differs.
+ */
+const CONFIDENCE_TIE = 0.02;
+
+/**
+ * ── WHICH READING OF A DECLARATION TO KEEP ──────────────────────────────────
+ *
+ * An inspector photographs a package three times because one frame catches
+ * what another misses, and until now nothing in this stage acted on that. The
+ * first frame to yield anything won, and the rest were discarded unread.
+ *
+ * On a 100 ml cleanser photographed front, back and back-again, that policy
+ * recorded the manufacturing date as `03/20` from the middle frame at 0.93,
+ * while `03/2026` sat in the third frame at 0.9993 — and the rule engine then
+ * reported the truncation as a violation for not being a readable month and
+ * year. The same frame gave `AAAA` for a batch number printed `AAAA557`, and
+ * `18 monts ton` for `18 months from the date of manufacturing`.
+ *
+ * Confidence decides it, because that is the recogniser's own account of how
+ * well it resolved the characters, and on every one of those pairs it is
+ * decisive. Length breaks a tie rather than driving the choice: a truncated
+ * read is shorter than a whole one, but a longer string is not evidence of
+ * anything on its own — an over-greedy continuation is longer too.
+ */
+function isBetterReading(
+  candidate: { confidence?: number; value: string },
+  incumbent: { confidence?: number; value: string },
+): boolean {
+  const scored = candidate.confidence;
+  const held = incumbent.confidence;
+
+  if (scored !== undefined && held !== undefined) {
+    if (Math.abs(scored - held) > CONFIDENCE_TIE) return scored > held;
+    return candidate.value.length > incumbent.value.length;
+  }
+
+  // A reading the provider scored can be defended in a report; one it did not
+  // score cannot be compared to it, so the measured one is preferred.
+  if (scored !== undefined) return true;
+  if (held !== undefined) return false;
+
+  return candidate.value.length > incumbent.value.length;
+}
 
 /* ── The service ──────────────────────────────────────────────────────────── */
 
@@ -642,40 +781,94 @@ export class InformationExtractionService {
      * Nothing the pattern pass can find later beats it, so it goes in first and
      * the lines it used are taken out of circulation.
      */
-    const stripLines = lines.map((line) => ({
-      index: line.index,
-      text: line.text,
-      raw: line.raw,
-      box: boxOf(line),
-    }));
+    /**
+     * ── ONE PHOTOGRAPH AT A TIME ───────────────────────────────────────────
+     *
+     * Both readers below are geometric: they ask which lines form a column,
+     * what sits beside them, and which side of the labels the values are on.
+     * None of those questions has an answer across two photographs — a box
+     * from the second frame is in the second frame's pixels, and comparing it
+     * to a box from the first is comparing two different coordinate systems
+     * that happen to be numbers.
+     *
+     * They were being handed every line from every image in one array, and the
+     * result was exactly what that predicts. On a cleanser photographed three
+     * times, the `MRP` header from the second frame was paired with `9T23
+     * 4655` from the third — the consumer-care mobile number, misread — and a
+     * report went out recording the maximum retail price of a ₹299 bottle as
+     * 4655. The `Batch No` header was paired with `302022, Rajasthan, India.`,
+     * the marketer's Jaipur PIN, because mixing the frames had also broken the
+     * vote on which side of the labels the values sit.
+     *
+     * Grouped by image, each reader sees one panel's geometry and nothing
+     * else. Readings from different frames then compete on the evidence, in
+     * the reconciliation below.
+     */
+    const linesByImage = new Map<string, Line[]>();
+    for (const line of lines) {
+      const key = line.region?.imageId ?? '';
+      const group = linesByImage.get(key);
+      if (group) group.push(line);
+      else linesByImage.set(key, [line]);
+    }
+
+    const stripReadings: StripReading[] = [];
+
+    for (const group of linesByImage.values()) {
+      const stripLines = group.map((line) => ({
+        index: line.index,
+        text: line.text,
+        raw: line.raw,
+        box: boxOf(line),
+      }));
+
+      /*
+       * Two layouts, two readers, and the coder's strip wins where both fire.
+       *
+       * A coding strip is sprayed on at packing time and is the more specific
+       * claim — where a pack carries both, the strip holds the batch and the
+       * dates for *this* run, and the printed block beside it may carry a
+       * generic or older declaration. Reading the strip first and dropping a
+       * later reading of the same field is what expresses that, and it is
+       * settled per photograph, before frames are compared at all.
+       */
+      const seen = new Set<string>();
+
+      for (const reading of [...readCodingStrip(stripLines), ...readLabelColumn(stripLines)]) {
+        if (seen.has(reading.field)) continue;
+        seen.add(reading.field);
+        stripReadings.push(reading);
+      }
+    }
 
     /*
-     * Two layouts, two readers, and the coder's strip wins where both fire.
-     *
-     * A coding strip is sprayed on at packing time and is the more specific
-     * claim — where a pack carries both, the strip holds the batch and the
-     * dates for *this* run, and the printed block beside it may carry a
-     * generic or older declaration. Concatenating with the strip first is
-     * enough to express that, because the loop below claims a field once and
-     * ignores later readings of it.
+     * Now across frames: the best-resolved reading of each declaration wins.
+     * See `isBetterReading` for why that is confidence and not order.
      */
-    const stripReadings = [
-      ...readCodingStrip(stripLines),
-      ...readLabelColumn(stripLines),
-    ];
-
-    const fromStrip = new Set<string>();
+    const bestStrip = new Map<string, { reading: StripReading; used: Line[]; confidence?: number }>();
 
     for (const reading of stripReadings) {
-      // The strip's reading of a field stands; the printed block does not
-      // overwrite it. Without this the second reader silently replaced the
-      // first, which is the opposite of the precedence intended above.
-      if (fromStrip.has(reading.field)) continue;
-
       const used = reading.lines
         .map((entry) => lines[entry.index])
         .filter((line): line is Line => line !== undefined);
 
+      const confidence = confidenceOf(used);
+      const held = bestStrip.get(reading.field);
+
+      if (
+        !held ||
+        isBetterReading(
+          { confidence, value: reading.value },
+          { confidence: held.confidence, value: held.reading.value },
+        )
+      ) {
+        bestStrip.set(reading.field, { reading, used, confidence });
+      }
+    }
+
+    const fromStrip = new Set<string>();
+
+    for (const { reading, used, confidence } of bestStrip.values()) {
       for (const line of used) line.claimedBy = reading.field;
 
       const spec = FIELD_SPECS.find((candidate) => candidate.field === reading.field);
@@ -685,7 +878,7 @@ export class InformationExtractionService {
         field: reading.field,
         label: spec?.label ?? reading.field,
         value: reading.value,
-        confidence: confidenceOf(used),
+        confidence,
         status: 'FOUND',
         evidence: used.map((line) =>
           evidenceFor(line, spaceByImage.get(line.region?.imageId ?? '')),
@@ -766,7 +959,7 @@ export class InformationExtractionService {
       );
     }
 
-    const contextSignals = this.contextSignalsFrom(fields, informational);
+    const contextSignals = contextSignalsFrom(fields, informational);
 
     return {
       engine: this.engine,
@@ -810,6 +1003,41 @@ export class InformationExtractionService {
     // Labelled forms first: a printed label is direct evidence of what the
     // declaration is, and a pattern match is only an inference about it.
     for (const pass of ['LABEL_MATCH', 'PATTERN_MATCH'] as const) {
+      /**
+       * Every line that yields a value, not the first one.
+       *
+       * The same declaration is commonly readable in two or three of the
+       * photographs, and this used to return on whichever the recogniser
+       * happened to emit first — which is upload order, and says nothing about
+       * which frame resolved it. A cleanser's manufacturing date came back
+       * `03/20` from a soft frame while `03/2026` sat in a sharp one, and the
+       * rule engine reported the truncation as a violation.
+       *
+       * The pass boundary is kept: a labelled reading anywhere beats a shape
+       * matched somewhere, so candidates are only ever compared against others
+       * from the same pass.
+       */
+      const candidates: Array<{
+        record: ExtractedFieldRecord;
+        used: Line[];
+        /**
+         * Which of the spec's label forms matched, by position.
+         *
+         * `labels` is written in precedence order, and the order carries
+         * meaning that confidence must not be allowed to overturn: rule 6(1)(a)
+         * asks for the manufacturer, so `Manufactured By` is listed first and
+         * `Marketed By` last, because a package naming both is answering the
+         * rule with the first one.
+         *
+         * Comparing the two on confidence instead read a moisturizer's
+         * declaration off `Marketed By, Uprising Science Pvt. Ltd.` — a
+         * crisper line than the manufacturer's block below it, and the wrong
+         * declaration. Confidence settles which *frame* read a declaration
+         * best; it cannot settle which declaration was read.
+         */
+        labelIndex: number;
+      }> = [];
+
       for (const line of lines) {
         // Informational fields may re-read a line an engine field already took —
         // "Imported by ..." is both the rule 6(1)(a) declaration and the
@@ -831,8 +1059,11 @@ export class InformationExtractionService {
 
         let after: string | null = null;
 
+        let labelIndex = 0;
+
         if (pass === 'LABEL_MATCH') {
-          const label = spec.labels.find((candidate) => candidate.test(line.text));
+          labelIndex = spec.labels.findIndex((candidate) => candidate.test(line.text));
+          const label = spec.labels[labelIndex];
           if (!label) continue;
           after = stripLabel(line.text, label);
         } else {
@@ -916,25 +1147,67 @@ export class InformationExtractionService {
           valueLines.length > 1 ? valueLines.map((entry) => entry.text).join(', ') : value.value;
         const base = confidenceOf(used);
 
-        if (spec.engineField) {
-          for (const entry of used) entry.claimedBy = spec.field;
+        candidates.push({
+          used,
+          labelIndex,
+          record: {
+            field: spec.field,
+            label: spec.label,
+            // A continuation rewrites the value to the joined text, because half
+            // an address is a worse answer than the whole one.
+            value: valueLines.length > 1 ? text : value.value,
+            confidence:
+              base === undefined
+                ? undefined
+                : value.repaired
+                  ? base * REPAIR_CONFIDENCE_PENALTY
+                  : base,
+            status: 'FOUND',
+            unit: value.unit,
+            evidence: used.map((entry) =>
+              evidenceFor(entry, spaceByImage.get(entry.region?.imageId ?? '')),
+            ),
+            method: pass,
+            matchedText: used.map((entry) => entry.raw).join(' '),
+            repaired: value.repaired,
+          },
+        });
+      }
+
+      let best: { record: ExtractedFieldRecord; used: Line[]; labelIndex: number } | undefined;
+
+      for (const candidate of candidates) {
+        if (!best) {
+          best = candidate;
+          continue;
         }
 
-        return {
-          field: spec.field,
-          label: spec.label,
-          // A continuation rewrites the value to the joined text, because half
-          // an address is a worse answer than the whole one.
-          value: valueLines.length > 1 ? text : value.value,
-          confidence:
-            base === undefined ? undefined : value.repaired ? base * REPAIR_CONFIDENCE_PENALTY : base,
-          status: 'FOUND',
-          unit: value.unit,
-          evidence: used.map((entry) => evidenceFor(entry, spaceByImage.get(entry.region?.imageId ?? ''))),
-          method: pass,
-          matchedText: used.map((entry) => entry.raw).join(' '),
-          repaired: value.repaired,
-        };
+        // The label form decides first, and only readings of the same form are
+        // compared on how well the camera resolved them.
+        if (candidate.labelIndex !== best.labelIndex) {
+          if (candidate.labelIndex < best.labelIndex) best = candidate;
+          continue;
+        }
+
+        if (
+          isBetterReading(
+            { confidence: candidate.record.confidence, value: candidate.record.value ?? '' },
+            { confidence: best.record.confidence, value: best.record.value ?? '' },
+          )
+        ) {
+          best = candidate;
+        }
+      }
+
+      if (best) {
+        // Claimed only once the winner is known. Claiming as each candidate was
+        // built would take the losing frames' lines out of circulation for
+        // every field after this one.
+        if (spec.engineField) {
+          for (const entry of best.used) entry.claimedBy = spec.field;
+        }
+
+        return best.record;
       }
     }
 
@@ -971,6 +1244,7 @@ export class InformationExtractionService {
       if (line.claimedBy) break;
       if (startsNewDeclaration(line.text)) break;
       // A continuation must look like more of an address, not a new heading.
+      if (isHeading(line.text)) break;
       if (line.text.length < 3) break;
 
       taken.push(line);
@@ -1144,81 +1418,81 @@ export class InformationExtractionService {
 
     return category;
   }
+}
 
-  /**
-   * Facts that change which rules reach the package.
-   *
-   * Reported, not applied. `ComplianceInputAdapter` decides whether to adopt a
-   * signal, and only where the caller left the corresponding context unset — an
-   * inspector who has told the system the package is domestic is not overruled
-   * by a line of OCR text.
-   */
-  private contextSignalsFrom(
-    fields: Record<string, ExtractedFieldRecord>,
-    informational: Record<string, ExtractedFieldRecord>,
-  ): ContextSignal[] {
-    const signals: ContextSignal[] = [];
+/**
+ * Facts that change which rules reach the package.
+ *
+ * Reported, not applied. `ComplianceInputAdapter` decides whether to adopt a
+ * signal, and only where the caller left the corresponding context unset — an
+ * inspector who has told the system the package is domestic is not overruled
+ * by a line of OCR text.
+ */
+export function contextSignalsFrom(
+  fields: Record<string, ExtractedFieldRecord>,
+  informational: Record<string, ExtractedFieldRecord>,
+): ContextSignal[] {
+  const signals: ContextSignal[] = [];
 
-    const importer = informational.importer;
-    if (importer?.status === 'FOUND') {
+  const importer = informational.importer;
+  if (importer?.status === 'FOUND') {
+    signals.push({
+      key: 'isImported',
+      value: true,
+      basis: 'An importer declaration was read on the package.',
+      evidence: importer.evidence,
+    });
+  }
+
+  const origin = fields.country_of_origin;
+  if (origin?.status === 'FOUND' && origin.value) {
+    signals.push({
+      key: 'countryOfOrigin',
+      value: origin.value,
+      basis: 'Read from the country-of-origin declaration.',
+      evidence: origin.evidence,
+    });
+    if (!/\bindia\b/i.test(origin.value)) {
       signals.push({
         key: 'isImported',
         value: true,
-        basis: 'An importer declaration was read on the package.',
-        evidence: importer.evidence,
-      });
-    }
-
-    const origin = fields.country_of_origin;
-    if (origin?.status === 'FOUND' && origin.value) {
-      signals.push({
-        key: 'countryOfOrigin',
-        value: origin.value,
-        basis: 'Read from the country-of-origin declaration.',
+        basis: `The declared country of origin is "${origin.value}".`,
         evidence: origin.evidence,
       });
-      if (!/\bindia\b/i.test(origin.value)) {
-        signals.push({
-          key: 'isImported',
-          value: true,
-          basis: `The declared country of origin is "${origin.value}".`,
-          evidence: origin.evidence,
-        });
-      }
     }
+  }
 
-    const quantity = fields.net_quantity;
-    if (quantity?.status === 'FOUND' && quantity.value) {
-      const amount = firstAmount(quantity.value);
-      if (amount !== null) {
-        signals.push({
-          key: 'quantity',
-          value: amount,
-          basis: 'Parsed from the net-quantity declaration.',
-          evidence: quantity.evidence,
-        });
-      }
-      if (quantity.unit) {
-        signals.push({
-          key: 'quantityUnit',
-          value: quantity.unit,
-          basis: 'Parsed from the net-quantity declaration.',
-          evidence: quantity.evidence,
-        });
-      }
-    }
-
-    if (informational.fssai_licence?.status === 'FOUND') {
+  const quantity = fields.net_quantity;
+  if (quantity?.status === 'FOUND' && quantity.value) {
+    const amount = firstAmount(quantity.value);
+    if (amount !== null) {
       signals.push({
-        key: 'isFoodArticle',
-        value: true,
-        basis: 'An FSSAI licence number was read on the package.',
-        evidence: informational.fssai_licence.evidence,
+        key: 'quantity',
+        value: amount,
+        basis: 'Parsed from the net-quantity declaration.',
+        evidence: quantity.evidence,
       });
     }
-
-    return signals;
+    if (quantity.unit) {
+      signals.push({
+        key: 'quantityUnit',
+        value: quantity.unit,
+        basis: 'Parsed from the net-quantity declaration.',
+        evidence: quantity.evidence,
+      });
+    }
   }
+
+  if (informational.fssai_licence?.status === 'FOUND') {
+    signals.push({
+      key: 'isFoodArticle',
+      value: true,
+      basis: 'An FSSAI licence number was read on the package.',
+      evidence: informational.fssai_licence.evidence,
+    });
+  }
+
+  return signals;
 }
 
 export const extractionService = new InformationExtractionService();

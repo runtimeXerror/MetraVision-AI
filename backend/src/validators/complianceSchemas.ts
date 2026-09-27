@@ -111,15 +111,6 @@ export const evaluateComplianceSchema = z.object({
   evidence: evidenceContextSchema.optional(),
   options: z
     .object({
-      thresholds: z
-        .object({
-          sufficient: confidence.optional(),
-          weak: confidence.optional(),
-          absenceSufficient: confidence.optional(),
-          minimumCaptureCompleteness: confidence.optional(),
-        })
-        .strict()
-        .optional(),
       includeFutureRules: z.boolean().optional(),
     })
     .strict()

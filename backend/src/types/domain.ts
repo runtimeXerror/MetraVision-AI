@@ -28,14 +28,19 @@ export const ROLE_RANK: Record<UserRole, number> = {
  * Inspection lifecycle.
  *
  * Note this single enum carries both workflow position (DRAFT, PROCESSING,
- * FINALIZED) and verdict (COMPLIANT, VIOLATION_DETECTED, REVIEW_REQUIRED),
- * as specified. `complianceResult.status` holds the verdict independently, so
- * a FINALIZED record has not lost what it was finalized as.
+ * FINALIZED) and verdict (COMPLIANT, VIOLATION_DETECTED), as specified.
+ * `complianceResult.status` holds the verdict independently, so a FINALIZED
+ * record has not lost what it was finalized as.
+ *
+ * There is no REVIEW_REQUIRED. A scan is either compliant or it is not; the
+ * inspector who finalizes the record is the review, and a declaration the
+ * reading did not find is recorded as not declared for them to confirm or
+ * correct. Records written under the older engine are re-evaluated on boot —
+ * see `migrateReviewStates` — so nothing in the register carries the state.
  */
 export const INSPECTION_STATUSES = [
   'DRAFT',
   'PROCESSING',
-  'REVIEW_REQUIRED',
   'COMPLIANT',
   'VIOLATION_DETECTED',
   'FINALIZED',
@@ -43,52 +48,22 @@ export const INSPECTION_STATUSES = [
 export type InspectionStatus = (typeof INSPECTION_STATUSES)[number];
 
 /** The verdict alone, independent of workflow position. */
-export const COMPLIANCE_STATUSES = ['COMPLIANT', 'VIOLATION_DETECTED', 'REVIEW_REQUIRED'] as const;
+export const COMPLIANCE_STATUSES = ['COMPLIANT', 'VIOLATION_DETECTED'] as const;
 export type ComplianceStatus = (typeof COMPLIANCE_STATUSES)[number];
 
 /**
  * ── WHICH FIELD A `?status=` FILTER MEANS ───────────────────────────────────
  *
- * `INSPECTION_STATUSES` overlaps `COMPLIANCE_STATUSES` on three values, and
+ * `INSPECTION_STATUSES` overlaps `COMPLIANCE_STATUSES` on two values, and
  * `inspection.status` is overwritten with `FINALIZED` when a record is filed.
  * So a filter written as `{ status: 'VIOLATION_DETECTED' }` matched only the
  * inspections that had *not* been finalized yet — every filed violation
  * disappeared from it, permanently, which is the opposite of what a register is
  * for. The verdict was never lost; it lives on in `complianceResult.status`.
- * The filter was simply reading the wrong field.
- *
- * The bug had teeth because it was silent and it grew. Home shows a
- * "Violations" tile counted from `complianceResult.status`, and tapping it
- * opens the list filtered by this parameter — so an officer tapping "12" was
- * shown however many of those twelve happened to be unfiled, with nothing to
- * say where the rest had gone. Since filing is the normal end of an inspection,
- * the gap widened with every record closed.
- *
- * This resolves each of the three shared values to the field its label
- * actually means:
  *
  *   COMPLIANT, VIOLATION_DETECTED → the verdict.
  *       "Show me the violations" means all of them. Whether the paperwork is
  *       closed does not change what was found.
- *
- *   REVIEW_REQUIRED → the work that is actually left.
- *       "Review required" is a queue, not a finding: it is what still sits on
- *       the officer's desk.
- *
- *       This read the workflow column, on the assumption that filing a record
- *       means having reviewed it. That assumption is false, and the app is what
- *       makes it false: an inspector can finalize an inspection with
- *       declarations still unruled — there are good reasons to, in a market,
- *       with a queue behind you — and the moment they did, the record left the
- *       queue and there was no way back to the declarations it had never
- *       answered. The work was not done; it was only unlisted.
- *
- *       So the queue asks the question it means: does this inspection still
- *       have a declaration nobody has ruled on? `extractedFields.reviewAction`
- *       is set when an inspector accepts, corrects or marks one unavailable, so
- *       its absence is exactly "not yet looked at" — and a record drops out of
- *       the queue when the last declaration is answered, which is the only
- *       thing that should take it out.
  *
  * DRAFT, PROCESSING and FINALIZED are workflow-only and were never ambiguous.
  * ────────────────────────────────────────────────────────────────────────────
@@ -98,51 +73,8 @@ const VERDICT_FILTER_FIELDS = {
   VIOLATION_DETECTED: 'complianceResult.status',
 } as const;
 
-/**
- * The database filter for one status, as a fragment to merge into a query.
- *
- * Returns a fragment rather than a field name because the review queue is not
- * a single-column test any more — it is a verdict and an outstanding
- * declaration together, and a helper that can only name one column cannot say
- * that.
- */
-/**
- * The same queue, as an aggregation expression.
- *
- * `statusFilter` answers it for `find`; the dashboard counts it with `$group`,
- * and the two must agree or the tile disagrees with the list it opens. Written
- * once here so they cannot drift apart again — which is the exact failure this
- * module's header records for the verdict filters.
- */
-export function isPendingReviewExpr(): Record<string, unknown> {
-  return {
-    $and: [
-      { $eq: ['$complianceResult.status', 'REVIEW_REQUIRED'] },
-      {
-        $gt: [
-          {
-            $size: {
-              $filter: {
-                input: { $ifNull: ['$extractedFields', []] },
-                cond: { $not: [{ $ifNull: ['$$this.reviewAction', false] }] },
-              },
-            },
-          },
-          0,
-        ],
-      },
-    ],
-  };
-}
-
+/** The database filter for one status, as a fragment to merge into a query. */
 export function statusFilter(status: InspectionStatus): Record<string, unknown> {
-  if (status === 'REVIEW_REQUIRED') {
-    return {
-      'complianceResult.status': 'REVIEW_REQUIRED',
-      extractedFields: { $elemMatch: { reviewAction: { $exists: false } } },
-    };
-  }
-
   const field = VERDICT_FILTER_FIELDS[status as keyof typeof VERDICT_FILTER_FIELDS] ?? 'status';
   return { [field]: status };
 }
@@ -288,8 +220,6 @@ export interface ViolationDTO {
 
 export interface ComplianceResultDTO {
   status: ComplianceStatus;
-  /** 0–100. */
-  score: number;
   checks: ComplianceCheckDTO[];
   violations: ViolationDTO[];
   warnings: string[];
@@ -362,7 +292,6 @@ export interface ScanRecordDTO {
     warnings: unknown[];
     issues: unknown[];
     issueSummary: Record<string, unknown>;
-    thresholds: Record<string, unknown>;
     ruleSetVersion: string;
     ruleSetChecksum: string;
     engineVersion: string;
@@ -411,7 +340,6 @@ export interface InspectionDTO {
   scan?: ScanRecordDTO;
   review?: {
     completedFieldCount: number;
-    pendingFieldCount: number;
     lastReviewedAt?: string;
   };
   /**
@@ -478,7 +406,5 @@ export interface StatsDTO {
   totalInspections: number;
   compliant: number;
   violations: number;
-  pendingReviews: number;
   finalized: number;
-  averageScore: number;
 }

@@ -4,7 +4,7 @@ import { Linking } from 'react-native';
 
 import { confirm, dialog } from '../components/Dialog';
 
-import type { ImageSide, ImageSource } from '../types';
+import type { ImageSide, ImageSource, ProductImage } from '../types';
 import { useImageStore } from '../store/imageStore';
 
 /**
@@ -28,7 +28,7 @@ function explainPermission(kind: 'camera' | 'gallery'): void {
 
   void confirm({
     title: `${subject} is required`,
-    message: `Enable ${kind === 'camera' ? 'the camera' : 'photo access'} for LM Compliance Scanner in Settings to attach label photographs.`,
+    message: `Enable ${kind === 'camera' ? 'the camera' : 'photo access'} for MetraVision AI in Settings to attach label photographs.`,
     confirmLabel: 'Open Settings',
     cancelLabel: 'Not now',
     tone: 'warning',
@@ -113,9 +113,16 @@ export function useImageCapture() {
     };
   }, []);
 
-  /** Captures one image and files it under the given package face. */
+  /**
+   * Captures one image and files it under the given package face.
+   *
+   * Returns the photograph that was just taken, so the caller can put it in
+   * front of the inspector while the packet is still in their hand. Only the
+   * camera path returns one: a gallery pick can bring back six at once, and
+   * there is no single "the photograph you just took" among them.
+   */
   const capture = useCallback(
-    async (source: ImageSource, side: ImageSide) => {
+    async (source: ImageSource, side: ImageSide): Promise<ProductImage | null> => {
       setBusy(true);
       try {
         // The gallery path can return several assets; add them all.
@@ -123,7 +130,7 @@ export function useImageCapture() {
           const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!permission.granted) {
             explainPermission('gallery');
-            return;
+            return null;
           }
 
           const result = await ImagePicker.launchImageLibraryAsync({
@@ -134,7 +141,7 @@ export function useImageCapture() {
             exif: false,
           });
 
-          if (result.canceled) return;
+          if (result.canceled) return null;
 
           for (const asset of result.assets) {
             addImage({
@@ -146,13 +153,13 @@ export function useImageCapture() {
               fileSize: asset.fileSize,
             });
           }
-          return;
+          return null;
         }
 
         const captured = await pick('camera');
-        if (!captured) return;
+        if (!captured) return null;
 
-        addImage({ ...captured, side, source: 'camera' });
+        return addImage({ ...captured, side, source: 'camera' });
       } finally {
         setBusy(false);
       }

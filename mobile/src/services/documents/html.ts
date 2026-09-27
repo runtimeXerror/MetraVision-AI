@@ -72,7 +72,18 @@ const STYLES = `
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    /*
+     * The tail of this stack is not decoration. Two characters in this document
+     * are outside the Latin range a default sans covers: the rupee sign in
+     * every price, and the ministry's name in Devanagari. A stack that ends at
+     * Arial renders both as empty boxes, and a report that prints the MRP as
+     * a tofu square is not a document about prices. The Devanagari and Noto
+     * faces are named last so they are reached only for the glyphs the faces
+     * ahead of them do not carry.
+     */
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+                 "Noto Sans", "Noto Sans Devanagari", "Nirmala UI",
+                 "Kohinoor Devanagari", sans-serif;
     font-size: 10.5px;
     line-height: 1.5;
     color: #1A1A1A;
@@ -264,18 +275,82 @@ const STYLES = `
     color: #0A2A5C; font-weight: 700; border-bottom: 1px solid #0A2A5C;
   }
   td.num, th.num { text-align: right; white-space: nowrap; }
+  /* The provision column. Narrow and unwrapped, because "6(1)(da)" broken
+     across two lines stops being a citation a reader can look up. */
+  td.rule, th.rule { white-space: nowrap; width: 1%; font-size: 9px; }
   tr.total td { font-weight: 700; border-bottom: none; border-top: 1px solid #0A2A5C; }
   table.kv td:first-child { width: 33%; color: #444444; }
   table.kv td:last-child { font-weight: 700; }
 
   /* Verdict */
+  /*
+   * ── THE DETERMINATION CARRIES ITS OUTCOME ──────────────────────────────
+   *
+   * The block was a black rule around black type whatever the finding was, so
+   * a clean report and one carrying a violation looked identical until you
+   * read them. A determination is the one line of an enforcement document that
+   * has to be legible across a desk.
+   *
+   * The tone is spent on the left edge, the heading and a wash — a few square
+   * centimetres, not a filled panel, so the ink argument that keeps the rest
+   * of this document monochrome still holds.
+   */
   .verdict {
     display: flex; justify-content: space-between; align-items: flex-end; gap: 16px;
-    margin-top: 10px; padding: 10px 12px; border: 1.5px solid #1A1A1A;
+    margin-top: 10px; padding: 10px 12px;
+    border: 1px solid #C9C9C9; border-left: 3px solid #1A1A1A;
   }
   .verdict .label { font-size: 7.5px; letter-spacing: 0.7px; text-transform: uppercase; color: #666666; }
-  .verdict .status { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  .verdict .status { font-size: 15px; font-weight: 700; margin-top: 2px; line-height: 1.3; }
   .verdict .score { font-size: 22px; font-weight: 700; }
+  .verdict.ok   { border-left-color: #1B6B4A; background: #F3FAF6; }
+  .verdict.bad  { border-left-color: #A61B1B; background: #FDF4F4; }
+  .verdict.warn { border-left-color: #8A5A00; background: #FDF8EF; }
+  .verdict.ok   .status { color: #1B6B4A; }
+  .verdict.bad  .status { color: #A61B1B; }
+  .verdict.warn .status { color: #8A5A00; }
+
+  /*
+   * ── THE SNAPSHOT, AND WHY NOTHING HERE HAS A HEIGHT ────────────────────
+   *
+   * Four counts, so a reader knows the shape of the finding before reading a
+   * row of the schedule.
+   *
+   * Every box is sized by its own content. The version of this that came
+   * before set a height on the tile and a large font on the numeral inside it,
+   * and the numeral was clipped along its baseline on every tile — a report
+   * whose headline figures were cut in half. A print engine will not reflow a
+   * fixed box to fit what is in it, so the box does not get to be fixed:
+   * padding and an explicit line-height do the spacing, and the tile grows to
+   * whatever the label and the number need.
+   *
+   * The label sits above the number and is allowed to wrap to two lines, which
+   * is the other half of that defect — "Not applicable" wrapped, pushed the
+   * numeral down, and the numeral had nowhere to go.
+   */
+  .snap { display: flex; gap: 6px; margin-top: 8px; align-items: stretch; }
+  .snap > div {
+    flex: 1 1 0; min-width: 0;
+    padding: 6px 8px 7px;
+    border: 1px solid #DCDCDC; border-top-width: 2px;
+    text-align: center;
+    overflow: visible;
+  }
+  .snap .k {
+    font-size: 6.8px; letter-spacing: 0.5px; text-transform: uppercase;
+    color: #555555; line-height: 1.3; min-height: 17px;
+  }
+  .snap .v {
+    font-size: 16px; font-weight: 700; line-height: 1.25; margin-top: 2px;
+  }
+  .snap .ok   { border-top-color: #1B6B4A; background: #F3FAF6; }
+  .snap .bad  { border-top-color: #A61B1B; background: #FDF4F4; }
+  .snap .warn { border-top-color: #8A5A00; background: #FDF8EF; }
+  .snap .na   { border-top-color: #8A94A6; background: #F5F7FA; }
+  .snap .ok   .v { color: #1B6B4A; }
+  .snap .bad  .v { color: #A61B1B; }
+  .snap .warn .v { color: #8A5A00; }
+  .snap .na   .v { color: #5A6472; }
 
   .tag {
     display: inline-block; padding: 0 6px; border: 1px solid #1A1A1A; border-radius: 2px;
@@ -368,6 +443,10 @@ const STYLES = `
      reader must not scan past. Used nowhere else in the document. */
   .bad { color: #A61B1B; }
   .review { color: #8A5A00; }
+  /* The other half of the pair. "Compliant" was left in body black, which read
+     as an unmarked default rather than as a verdict, and made a column of
+     results look like a column of findings with gaps in it. */
+  .ok { color: #1B6B4A; font-weight: 700; }
 
   /*
    * The officer's attestation.
@@ -398,16 +477,42 @@ const STYLES = `
    * cryptographic signature.
    */
   .sign { display: flex; justify-content: space-between; gap: 40px; margin-top: 22px; }
-  .sign > div { flex: 1; }
+  /* Bottom-aligned, so the two signature rules meet whatever sits above them.
+     The left column holds an empty slot for a pen and the right a signature
+     box whose height depends on the officer's name and badge number; without
+     this the two rules sat at different heights on the page. */
+  .sign > div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
   .sign .line { border-top: 1px solid #1A1A1A; padding-top: 4px; font-size: 8.5px; }
   .sign .slot { min-height: 54px; }
 
+  /**
+   * ── THE SIGNATURE APPEARANCE ────────────────────────────────────────────
+   *
+   * Drawn as a box, because that is what a digital signature *is* on every
+   * other document an officer handles: PDF readers render one as a bordered
+   * stamp, and a reader who has seen a hundred of them recognises the shape
+   * before reading a word of it.
+   *
+   * Set as four lines of loose type against the right margin, it read as a
+   * caption — small grey text drifting off the edge of the page, easy to take
+   * for a footer and easy to miss. It is the attestation.
+   *
+   * Centred rather than ranged right for the same reason. A stamp is centred
+   * on what it attests; ranged right it looked like the tail of the line
+   * above it rather than a block of its own.
+   */
   .dsc {
+    box-sizing: border-box;
     min-height: 54px;
-    font-size: 7.5px; line-height: 1.45; color: #444444; text-align: right;
+    margin-bottom: 5px;
+    padding: 6px 8px;
+    border: 1px solid #8A94A6;
+    border-radius: 3px;
+    display: flex; flex-direction: column; justify-content: center;
+    font-size: 7.5px; line-height: 1.45; color: #444444; text-align: center;
   }
   .dsc .by { color: #1A1A1A; }
-  .dsc .name { font-weight: 700; }
+  .dsc .name { font-weight: 700; font-size: 8.5px; }
 
   .foot {
     margin-top: 20px; padding-top: 8px; border-top: 1px solid #1A1A1A;
@@ -424,10 +529,14 @@ const STYLES = `
    * it rests on over the leaf — is the one thing a report of this kind must not
    * do, so the blocks that carry a single fact are kept whole.
    */
-  h2, tr, .finding, figure, .verdict, .kpi, .note, .sign, .refs > div {
+  h2, tr, .finding, figure, .verdict, .kpi, .note, .sign, .refs > div,
+  .snap, .snap > div {
     page-break-inside: avoid;
     break-inside: avoid;
   }
+  /* The counts belong to the determination above them, not to whatever the
+     next page starts with. */
+  .verdict { page-break-after: avoid; break-after: avoid; }
   /* A heading stranded as the last line of a page belongs to the next one. */
   h2 { page-break-after: avoid; break-after: avoid; }
   /* Never leave one line of a paragraph alone at a page boundary. */

@@ -113,13 +113,70 @@ function composeAddress(place: Location.LocationGeocodedAddress): string {
  * told — a question they can answer in two seconds while standing there beats
  * a plausible wrong answer nobody questions.
  */
-function pickDistrict(places: Location.LocationGeocodedAddress[]): string | undefined {
+/**
+ * ── AND WHY IT WAS STILL WRONG IN BIHAR ─────────────────────────────────────
+ *
+ * An inspection in Begusarai, PIN 851117, was filed against "Munger Division".
+ *
+ * That is not a mis-read. Begusarai district sits inside Munger Division, one
+ * of the nine revenue divisions Bihar groups its districts into — the geocoder
+ * answered a level too coarse, and the value it gave was true at that level.
+ *
+ * It happens because Google's administrative hierarchy is not the same depth
+ * everywhere in India. In most states level 2 — what Android hands over as
+ * `subAdministrativeArea`, and what Expo calls `subregion` — is the district.
+ * In Bihar (and it is not alone) level 2 is the *division* and the district
+ * sits a level below, where Android's `Address` has no field for it at all.
+ *
+ * So a division must never reach the District field. It is not merely
+ * imprecise: enforcement is reported and reconciled by district, and one
+ * record filed against a division silently merges six districts' worth of
+ * inspections into a group that does not exist on any return.
+ *
+ * When the division shows up, the hierarchy has an extra rung — which means
+ * the town underneath it, `city`, is one rung closer to the district than it
+ * would be in Pune or Thane, and in Bihar it is very often the district's own
+ * name. So it is offered as a candidate rather than discarded, and the field
+ * says where it came from: the officer confirms it with a glance, which is the
+ * one check nobody else downstream is in a position to make.
+ */
+const DIVISION = /\b(division|divn\.?|commissionerate)\b/i;
+
+interface DistrictGuess {
+  name: string;
+  /** True when this came from the town, not from the administrative level. */
+  fromTown: boolean;
+}
+
+function pickDistrict(places: Location.LocationGeocodedAddress[]): DistrictGuess | undefined {
+  let sawDivision = false;
+
   for (const place of places) {
     const value = place.subregion?.trim();
+    if (!value) continue;
+
+    if (DIVISION.test(value)) {
+      sawDivision = true;
+      continue;
+    }
+
     // "Pune District" and "Pune" have to be one value, or two inspections in
     // the same district group as two.
-    if (value) return value.replace(/\s+district$/i, '').trim();
+    return { name: value.replace(/\s+district$/i, '').trim(), fromTown: false };
   }
+
+  // Only where the geocoder proved it is answering at division level. Without
+  // that proof `city` is a town — Pimpri-Chinchwad, not Pune — and the old bug
+  // this function was written to fix.
+  if (sawDivision) {
+    for (const place of places) {
+      const town = place.city?.trim();
+      if (town && !DIVISION.test(town)) {
+        return { name: town.replace(/\s+district$/i, '').trim(), fromTown: true };
+      }
+    }
+  }
+
   return undefined;
 }
 
@@ -361,14 +418,20 @@ export function LocationField({
   const [showParts, setShowParts] = useState(false);
   /** The address lookup, which outlives the fix and must not hold the spinner. */
   const [geocoding, setGeocoding] = useState(false);
-  /** The geocoder returned no administrative district. See `pickDistrict`. */
-  const [districtUnknown, setDistrictUnknown] = useState(false);
+  /**
+   * What the lookup was able to say about the district. See `pickDistrict`.
+   *
+   * `unconfirmed` is not a lesser `missing`: the field is filled, and what is
+   * being asked is whether the town it was filled from is the district — a
+   * question only the officer standing there can answer.
+   */
+  const [districtNote, setDistrictNote] = useState<'none' | 'missing' | 'unconfirmed'>('none');
   /** The typed-address lookup is running. */
   const [searching, setSearching] = useState(false);
 
   const locate = useCallback(async () => {
     setStatus({ kind: 'locating' });
-    setDistrictUnknown(false);
+    setDistrictNote('none');
 
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
@@ -475,7 +538,7 @@ export function LocationField({
            */
           onChange({
             address: address || value.address,
-            district: district ?? value.district,
+            district: district?.name ?? value.district,
             state: pickState(places) ?? value.state,
             pincode: pickPincode(places) ?? value.pincode,
           });
@@ -484,7 +547,13 @@ export function LocationField({
           // Nothing in any result knew the district and nothing was typed. Say
           // so, rather than leaving a required field silently blank on a form
           // the officer is about to submit.
-          setDistrictUnknown(!district && !value.district?.trim());
+          setDistrictNote(
+            district?.fromTown
+              ? 'unconfirmed'
+              : !district && !value.district?.trim()
+                ? 'missing'
+                : 'none',
+          );
         }
       } catch {
         // Geocoding is the optional half — the coordinates are already saved.
@@ -521,7 +590,7 @@ export function LocationField({
     if (query.length < 6) return;
 
     setSearching(true);
-    setDistrictUnknown(false);
+    setDistrictNote('none');
 
     try {
       const [hit] = await Location.geocodeAsync(query);
@@ -542,14 +611,20 @@ export function LocationField({
       const district = pickDistrict(places);
 
       onChange({
-        district: district ?? value.district,
+        district: district?.name ?? value.district,
         state: pickState(places) ?? value.state,
         pincode: pickPincode(places) ?? value.pincode,
       });
 
       setStatus({ kind: 'searched' });
       setShowParts(true);
-      setDistrictUnknown(!district && !value.district?.trim());
+      setDistrictNote(
+        district?.fromTown
+          ? 'unconfirmed'
+          : !district && !value.district?.trim()
+            ? 'missing'
+            : 'none',
+      );
     } catch {
       setStatus({ kind: 'failed', message: 'Address lookup failed.' });
     } finally {
@@ -745,14 +820,20 @@ export function LocationField({
               placeholder="District"
               value={value.district ?? ''}
               onChangeText={(text) => {
-                setDistrictUnknown(false);
+                setDistrictNote('none');
                 onChange({ district: text });
               }}
               autoCapitalize="words"
               // Not an error — nothing is wrong with what the officer did. It
               // is the one thing the lookup could not answer, said once, on
               // the field that has to carry it.
-              hint={districtUnknown ? 'Not found — please enter' : undefined}
+              hint={
+                districtNote === 'missing'
+                  ? 'Not found — please enter'
+                  : districtNote === 'unconfirmed'
+                    ? 'From the town — check it is the district'
+                    : undefined
+              }
               containerStyle={{ flex: 1, marginBottom: 0 }}
             />
             <Input

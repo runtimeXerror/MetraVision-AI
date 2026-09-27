@@ -21,11 +21,33 @@ import { useAsync } from '../hooks/useAsync';
 import { OfflineBar } from '../components/offline';
 import { loadInspection } from '../services/offlineReads';
 import { fieldsNeedingReview } from '../store/analysisStore';
-import { resumeInspection } from '../store/resume';
+import { resumeInspection, resumeStepFor, type ResumeStep } from '../store/resume';
 import type { RootScreenProps } from '../navigation/types';
-import { formatConfidence, formatDateTime, formatDuration } from '../utils/format';
+import { formatDateTime, formatDuration } from '../utils/format';
 
 type Tab = 'summary' | 'fields' | 'issues' | 'checks' | 'text';
+
+/**
+ * What the button offers, per step.
+ *
+ * Each one names the next thing to do rather than the screen it opens: an
+ * officer picking a record back up is deciding whether they have time for it,
+ * and "Add photographs" answers that where "Capture" does not. The review
+ * carries its own count and is built at the call site.
+ */
+const RESUME_LABELS: Record<ResumeStep, string> = {
+  Capture: 'Add photographs',
+  Quality: 'Continue to analysis',
+  Review: 'Review the declarations',
+  Finalize: 'File this inspection',
+};
+
+const RESUME_ICONS: Record<ResumeStep, React.ComponentProps<typeof Ionicons>['name']> = {
+  Capture: 'camera-outline',
+  Quality: 'sparkles-outline',
+  Review: 'create-outline',
+  Finalize: 'checkmark-done-outline',
+};
 
 /** Read-only view of a completed inspection, opened from History or Home. */
 export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'InspectionDetail'>) {
@@ -81,6 +103,10 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
   // Declarations the engine could not settle on its own. The same list the
   // result screen names, so the count here and the count there agree.
   const pending = fieldsNeedingReview(analysis ?? null);
+  // Where this record has to be re-entered, if it is not finished. Derived
+  // from the record, not from the session that made it — which is precisely
+  // what an interrupted inspection no longer has.
+  const resumeStep = resumeStepFor(inspection);
 
   const tabs: Array<{ value: Tab; label: string; count?: number }> = [
     { value: 'summary', label: 'Summary' },
@@ -119,7 +145,7 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
             {/* How much was examined to reach that verdict. See the note at
                 `ComplianceTally` — the panel above says what the package is,
                 this says how much of it was read. */}
-            <ComplianceTally analysis={analysis} />
+            <ComplianceTally analysis={analysis} scan={inspection.scan} />
           </>
         ) : (
           <Card>
@@ -179,7 +205,7 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
                   </>
                 ) : null}
 
-                {/* ── WHAT USED TO BE A SECOND CARD ──────────────────────
+                {/* ── WHAT USED TO BE A SECOND CARD, AND THEN A FOOTNOTE ──
                     An "Analysis" card sat below this one carrying four rows:
                     engine, engine version, mean confidence and rule set. Three
                     of the four were already on the screen — the rule set is
@@ -189,15 +215,15 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
                     content was the processing time, which is now a row of the
                     record it describes.
 
-                    The engine and its version stay, because they are the
-                    provenance of a finding somebody may be asked to defend —
-                    but as a footnote, which is the weight they carry. */}
-                {analysis ? (
-                  <Txt variant="caption" color={colors.textFaint} style={{ marginTop: spacing.md }}>
-                    Read by {analysis.engine} · {analysis.engineVersion} ·{' '}
-                    {formatConfidence(analysis.meanConfidence)} mean confidence
-                  </Txt>
-                ) : null}
+                    What survived as a footnote — "Read by paddleocr · 3.7.0 ·
+                    94% mean confidence" — is gone too. It is provenance, and
+                    provenance belongs on the report's own audit block where a
+                    supervisor looks for it, not on the summary an inspector
+                    reads in a shop. Naming the recogniser on the face of a
+                    record also invites the reading that a declaration is only
+                    as good as the vendor that read it, when what actually
+                    qualifies each value is the per-declaration source already
+                    printed against it. */}
               </Card>
 
               <SectionHeader
@@ -316,17 +342,17 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
 
           {/*
             ── THE WAY BACK IN ────────────────────────────────────────────
-            Home counts what is waiting — "Pending Reviews" — and opens the
-            records behind that number. Until now the trail stopped here: the
-            record opened read-only, with Close and Open Report, and no way to
-            do the review the tile had just sent the officer to do. The one
-            figure on the home screen that is a to-do list led nowhere.
+            An officer opens an unfiled record to finish it. Until now the
+            trail stopped here: the record opened read-only, with Close and
+            Open Report, and no way back into the work.
 
             An unfiled record therefore offers the work rather than the
-            document. Where declarations are still waiting it goes to the
-            review; where they are all settled it goes straight to filing,
-            because that is the only step left. A filed record keeps Open
-            Report, which is the only thing left to do with it.
+            document, and the work is whatever it stopped in the middle of —
+            the camera, the analysis, the review or the filing. See
+            `resumeStepFor`, which reads that off the record itself, because an
+            inspection interrupted by the app closing remembers nothing else
+            about where it had got to. A filed record keeps Open Report, which
+            is the only thing left to do with it.
           */}
           {finalized ? (
             <Button
@@ -338,15 +364,19 @@ export function InspectionDetailScreen({ route, navigation }: RootScreenProps<'I
             />
           ) : (
             <Button
-              title={pending.length > 0 ? `Review ${pending.length} left` : 'File this inspection'}
-              icon={pending.length > 0 ? 'create-outline' : 'checkmark-done-outline'}
+              title={
+                resumeStep === 'Review'
+                  ? `Review ${pending.length} left`
+                  : RESUME_LABELS[resumeStep]
+              }
+              icon={RESUME_ICONS[resumeStep]}
               size="lg"
               style={{ flex: 1.4 }}
               onPress={() => {
-                // The review flow reads the capture stores, and a record opened
+                // The capture flow reads the capture stores, and a record opened
                 // from History fills none of them. See `resumeInspection`.
                 resumeInspection(inspection);
-                navigation.navigate(pending.length > 0 ? 'Review' : 'Finalize');
+                navigation.navigate(resumeStep);
               }}
             />
           )}

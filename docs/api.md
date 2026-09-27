@@ -85,7 +85,7 @@ stable machine-readable value a client branches on. Validation failures add a
 | `NO_TEXT_DETECTED` | 422 | The read succeeded and found no text. **Not** a finding that declarations are missing |
 | `OCR_AUTH_FAILED` | 503 | The OCR service rejected the configured credentials |
 | `OCR_QUOTA_EXCEEDED` | 503 | The OCR service quota is exhausted |
-| `OCR_TIMEOUT` | 504 | The OCR service did not answer within `OCR_TIMEOUT_MS` |
+| `OCR_TIMEOUT` | 504 | The OCR service did not answer within `OCR_TIMEOUT_MS`. Raised only when *no* photograph read — one unreadable face out of several is recorded on `scan.ocr.unread` and the scan continues |
 | `OCR_IMAGE_REJECTED` | 422 | The OCR service could not read the image at all |
 | `OCR_FAILED` | 503 | The OCR service is unavailable |
 | `NO_TEXT_DETECTED` | 422 | The read succeeded and found nothing legible |
@@ -94,6 +94,7 @@ stable machine-readable value a client branches on. Validation failures add a
 | `MOCK_FIXTURE_UNKNOWN` | 400 | `mockFixture` names a fixture that does not exist |
 | `MOCK_FIXTURE_UNAVAILABLE` | 400 | `mockFixture` sent while a real OCR provider is configured |
 | `IMAGES_UNREADABLE` | 400 | None of the stored images could be read back for a re-scan |
+| `SCAN_IN_PROGRESS` | 409 | A scan of this inspection is already running; wait for it rather than starting a second |
 | `INTERNAL_ERROR` | 500 | Unexpected failure; details are logged, not returned |
 
 > `INSPECTION_NOT_FOUND` is deliberately returned instead of `FORBIDDEN` when an

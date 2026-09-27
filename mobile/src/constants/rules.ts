@@ -14,10 +14,9 @@
  */
 
 /**
- * Confidence below this routes a field to human review.
+ * Confidence below this asks the inspector to confirm a field before filing.
  *
- * The server makes the same call when it sets `REVIEW_REQUIRED`; this threshold
- * governs only how the review screen orders and highlights fields for the
- * inspector working through them.
+ * It governs only which fields the review screen puts in front of them; the
+ * verdict is the server's, and it re-runs against whatever they confirm.
  */
 export const REVIEW_CONFIDENCE_THRESHOLD = 0.75;

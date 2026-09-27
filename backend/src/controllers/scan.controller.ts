@@ -20,7 +20,6 @@ import {
   toLegacyStatus,
   toLapsedDateFinding,
   toLegacyViolations,
-  scoreFor,
   renderReportHtml,
   buildReport,
   OCR_BUDGET_MS,
@@ -260,7 +259,6 @@ export async function scanInspection(req: Request, res: Response): Promise<Respo
         ruleSetVersion: outcome.compliance.ruleSetVersion,
         ruleSetChecksum: outcome.compliance.ruleSetChecksum,
         engineVersion: outcome.compliance.engineVersion,
-        thresholds: outcome.compliance.thresholds,
       },
 
       evidence: {
@@ -339,6 +337,10 @@ async function persistScan(inspection: InspectionDocument, outcome: ScanOutcome)
       contextSignals: extraction.contextSignals,
       unclaimedLines: extraction.unclaimedLines,
       warnings: extraction.warnings,
+      // Provenance, not decoration: a value an inspector accepted from a model
+      // and a value read off a printed label are different evidence, and a
+      // report regenerated later has to be able to tell them apart.
+      llm: extraction.llm as unknown as Record<string, unknown> | undefined,
     },
     legal: {
       status: compliance.status,
@@ -349,7 +351,6 @@ async function persistScan(inspection: InspectionDocument, outcome: ScanOutcome)
       warnings: compliance.warnings,
       issues,
       issueSummary: issueSummary as unknown as Record<string, unknown>,
-      thresholds: compliance.thresholds as unknown as Record<string, unknown>,
       ruleSetVersion: compliance.ruleSetVersion,
       ruleSetChecksum: compliance.ruleSetChecksum,
       engineVersion: compliance.engineVersion,
@@ -410,7 +411,6 @@ async function persistScan(inspection: InspectionDocument, outcome: ScanOutcome)
 
   inspection.complianceResult = {
     status: legacyStatus,
-    score: scoreFor(compliance),
     checks: toLegacyChecks(compliance),
     // The rule findings, then the one observation that is not a rule finding
     // and says so in its own text.
@@ -589,7 +589,6 @@ export async function getReport(req: Request, res: Response): Promise<Response |
     ruleSetChecksum: scan.legal.ruleSetChecksum,
     sourceVersion: '',
     engineVersion: scan.legal.engineVersion,
-    thresholds: scan.legal.thresholds,
     evaluatedAt: new Date(scan.legal.evaluatedAt).toISOString(),
     durationMs: scan.legal.durationMs,
   } as unknown as Parameters<typeof buildReport>[0]['compliance'];
@@ -607,7 +606,9 @@ export async function getReport(req: Request, res: Response): Promise<Response |
       inspectorId: dto.inspector.inspectorId,
     },
     business: dto.business,
-    location: { address: dto.location.address, district: dto.location.district, state: dto.location.state },
+    // The whole location. Narrowing it here is what dropped the PIN and the
+    // GPS fix from every report the scan pipeline issued.
+    location: dto.location,
     images: dto.images.map((image) => ({
       imageId: image.imageId,
       url: image.url,
@@ -644,6 +645,7 @@ export async function getReport(req: Request, res: Response): Promise<Response |
       unclaimedLines: scan.extraction.unclaimedLines,
       warnings: scan.extraction.warnings,
       declaredElsewhere: scan.extraction.declaredElsewhere ?? [],
+      llm: scan.extraction.llm as never,
       processingTimeMs: scan.extraction.processingMs,
       lineCount: scan.ocr.lineCount,
     },

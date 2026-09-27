@@ -1,39 +1,41 @@
-import type { ConfidenceThresholds, EvidenceReference, ProductContext } from './Evidence';
+import type { EvidenceReference, ProductContext } from './Evidence';
 import type { RuleSeverity, RuleSource, RuleTemporalStatus } from './Rule';
 
 /**
  * ── THE RESULT ──────────────────────────────────────────────────────────────
  *
- * Five states, not two.
+ * Two answers per rule, and a third that is not an answer.
  *
- * The temptation in a compliance system is to collapse everything to
- * pass/fail, and the cost of doing so is that "we could not read the label"
- * becomes indistinguishable from "the label is illegal". One of those is a
- * finding against a trader; the other is a finding against the camera. The
- * five states below keep them apart, and `DecisionEngine` is careful never to
- * promote the second into the first.
+ * A rule that reaches the package is either satisfied or it is not. There is
+ * no "review required" and no "insufficient evidence": the inspector who
+ * finalizes the record is the review, and a declaration the reading did not
+ * find is recorded as not declared — with the rule it contravenes — for that
+ * inspector to confirm or correct on the package in front of them.
+ *
+ * `NOT_APPLICABLE` is the third value, and it is not a verdict. It says the
+ * rule did not reach this package on the facts recorded — out of scope, exempt,
+ * or handed to another regulation.
  *
  * Every check carries the provision it came from, the date that provision came
- * into force, the evidence relied on, and the confidence in that evidence — so
- * a finding can be defended, and an unsound one can be seen to be unsound.
+ * into force, and the evidence relied on — so a finding can be defended, and an
+ * unsound one can be seen to be unsound.
  * ────────────────────────────────────────────────────────────────────────────
  */
 
 export const CHECK_STATUSES = [
   /** The requirement is satisfied. */
   'COMPLIANT',
-  /** The requirement is not satisfied, on evidence strong enough to say so. */
+  /** The requirement is not satisfied. */
   'VIOLATION_DETECTED',
-  /** Something is wrong or missing, but the evidence cannot carry a finding. */
-  'REVIEW_REQUIRED',
   /** The rule does not reach this package. */
   'NOT_APPLICABLE',
-  /** Nothing was captured that could answer the question either way. */
-  'INSUFFICIENT_EVIDENCE',
 ] as const;
 export type CheckStatus = (typeof CHECK_STATUSES)[number];
 
-/** The overall verdict uses the same vocabulary as an individual check. */
+/**
+ * The overall verdict uses the same vocabulary as an individual check.
+ * `NOT_APPLICABLE` only when no rule reached the package at all.
+ */
 export type ComplianceDecision = CheckStatus;
 
 export const NOT_APPLICABLE_REASONS = [
@@ -41,6 +43,12 @@ export const NOT_APPLICABLE_REASONS = [
   'CONTEXT_OUT_OF_SCOPE',
   'EXCEPTION_APPLIES',
   'DEFERRED_TO_OTHER_REGULATION',
+  /**
+   * The rule turns on a physical measurement — a letter height in millimetres,
+   * which panel a declaration sits on — that a photograph cannot supply. Such
+   * a rule is listed as considered and not evaluated; it never becomes a check.
+   */
+  'MEASUREMENT_NOT_AVAILABLE',
 ] as const;
 export type NotApplicableReason = (typeof NOT_APPLICABLE_REASONS)[number];
 
@@ -48,16 +56,12 @@ export type NotApplicableReason = (typeof NOT_APPLICABLE_REASONS)[number];
 export const CHECK_REASON_CODES = [
   'REQUIREMENT_SATISFIED',
   'DECLARATION_ABSENT',
-  'DECLARATION_ABSENT_LOW_CONFIDENCE',
   'DECLARATION_UNREADABLE',
   'FORMAT_NOT_SATISFIED',
-  'FORMAT_NOT_SATISFIED_LOW_CONFIDENCE',
   'VALUE_OUT_OF_RANGE',
   'UNIT_NOT_PERMITTED',
   'CROSS_FIELD_INCOMPLETE',
   'MEASUREMENT_NOT_AVAILABLE',
-  'CAPTURE_INCOMPLETE',
-  'NO_EVIDENCE_SUPPLIED',
   'RULE_NOT_IN_FORCE',
   'CONTEXT_OUT_OF_SCOPE',
   'EXCEPTION_APPLIES',
@@ -97,7 +101,10 @@ export interface ComplianceCheck {
   /** This system's reading of it — explicitly not authoritative. */
   machineInterpretation: string;
 
-  /** Confidence in the observation the check was made on. `null` when none applies. */
+  /**
+   * The OCR's confidence in the reading the check was made on, where one was
+   * reported. Informational — it never changes the outcome.
+   */
   confidence: number | null;
   evidence: EvidenceReference[];
   severity: RuleSeverity;
@@ -147,17 +154,12 @@ export interface ComplianceSummary {
   totalChecks: number;
   compliant: number;
   violations: number;
-  reviewRequired: number;
   notApplicable: number;
-  insufficientEvidence: number;
   /**
-   * Checks that could not be assessed because this phase has no way to take the
-   * measurement — letter heights, panel placement, legibility.
-   *
-   * Counted separately from `insufficientEvidence` because it is a fact about
-   * the system rather than about the package. Every package would carry the
-   * same count, so letting it drive the headline verdict would make the verdict
-   * a constant. It is reported, warned about, and kept out of the decision.
+   * Rules that were in force and in scope but could not be evaluated because
+   * this system has no way to take the measurement — letter heights, panel
+   * placement, legibility. They produce no check and are not in `totalChecks`;
+   * the count is kept so a reader knows they were considered.
    */
   pendingCapability: number;
 }
@@ -179,7 +181,6 @@ export interface ComplianceResult {
   sourceVersion: string;
 
   engineVersion: string;
-  thresholds: ConfidenceThresholds;
   evaluatedAt: string;
   /** Milliseconds. Excluded from the determinism contract, obviously. */
   durationMs: number;
@@ -199,7 +200,6 @@ export interface ComplianceAuditRecord {
     productContext: ProductContext;
     fields: Record<string, unknown>;
     evidence?: Record<string, unknown>;
-    thresholds: ConfidenceThresholds;
   };
   decision: ComplianceDecision;
   summary: ComplianceSummary;

@@ -2,7 +2,7 @@
   "name": "sih26034-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "SIH26034 — REST API for the Packaged Commodities Compliance Scanner (Phase 2)",
+  "description": "SIH26034 — MetraVision AI - REST API for packaged-commodity compliance",
   "main": "dist/index.js",
   "engines": {
     "node": ">=20.0.0"
@@ -19,6 +19,7 @@
     "corpus": "tsx scripts/corpus.mts",
     "reset:inspections": "tsx scripts/reset-inspections.mts",
     "testing": "tsx scripts/read-testing.mts",
+    "file:compliant": "tsx scripts/file-compliant.mts",
     "test": "vitest run",
     "test:watch": "vitest",
     "rules:report": "tsx src/compliance/tools/qualityReport.ts",

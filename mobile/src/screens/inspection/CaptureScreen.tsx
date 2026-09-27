@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { confirm } from '../../components/Dialog';
-import { CropImage, type CropResult } from '../../components/CropImage';
+import { ImageEditor, type EditResult } from '../../components/ImageEditor';
 import { ZoomableImage } from '../../components/ZoomableImage';
 
 import { ImageThumb } from '../../components/domain';
@@ -53,11 +53,41 @@ export function CaptureScreen() {
   const assessQuality = useImageStore((state) => state.assessQuality);
 
   const { capture, retakeFrom, busy } = useImageCapture();
-  const [preview, setPreview] = useState<ProductImage | null>(null);
-  const [cropping, setCropping] = useState<ProductImage | null>(null);
+
+  /*
+   * Both of these hold an id rather than the image itself.
+   *
+   * An edit writes a new file and swaps the store entry, so a copy of the
+   * record taken when the sheet opened is stale the moment the inspector
+   * applies a crop — and the preview would go on showing the untrimmed
+   * photograph until it was closed and re-opened. Reading it back out of the
+   * store on every render is what makes the result visible immediately.
+   */
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const preview = images.find((image) => image.id === previewId) ?? null;
+  const editing = images.find((image) => image.id === editingId) ?? null;
 
   const countFor = (side: ImageSide) => images.filter((image) => image.side === side).length;
   const guidance = FACE_GUIDANCE[activeSide];
+
+  /**
+   * Straight from the shutter to the photograph, full screen.
+   *
+   * An inspector cannot tell from a thumbnail the size of a fingernail whether
+   * the small print came out, and the moment to find out is while the packet is
+   * still in their hand — not at the quality step, by which time the shelf has
+   * been re-stacked. So the capture opens the photograph it just took, with the
+   * turn, the trim and the retake all one tap away.
+   *
+   * Nothing here is imposed: closing the sheet keeps the photograph exactly as
+   * the camera recorded it.
+   */
+  const captureFromCamera = async () => {
+    const taken = await capture('camera', activeSide);
+    if (taken) setPreviewId(taken.id);
+  };
 
   const missingRequired = IMAGE_SIDES.filter(
     (side) => FACE_GUIDANCE[side].required && countFor(side) === 0,
@@ -72,7 +102,7 @@ export function CaptureScreen() {
     }).then((confirmed) => {
       if (!confirmed) return;
       removeImage(image.id);
-      setPreview(null);
+      setPreviewId(null);
     });
   };
 
@@ -196,7 +226,7 @@ export function CaptureScreen() {
                 icon="camera"
                 size="lg"
                 loading={busy}
-                onPress={() => void capture('camera', activeSide)}
+                onPress={() => void captureFromCamera()}
               />
               <Button
                 title="Gallery"
@@ -265,7 +295,7 @@ export function CaptureScreen() {
                           <ImageThumb
                             key={image.id}
                             image={image}
-                            onPress={() => setPreview(image)}
+                            onPress={() => setPreviewId(image.id)}
                             onRemove={() => confirmDelete(image)}
                           />
                         ))}
@@ -300,18 +330,22 @@ export function CaptureScreen() {
         />
       </ActionBar>
 
-      {/* Full-screen preview with retake / delete. */}
-      <Modal visible={preview !== null} animationType="fade" onRequestClose={() => setPreview(null)}>
+      {/* Full-screen preview with edit / retake / delete. */}
+      <Modal
+        visible={preview !== null && editing === null}
+        animationType="fade"
+        onRequestClose={() => setPreviewId(null)}
+      >
         <View style={styles.previewScreen}>
           <Row justify="space-between" style={styles.previewHeader}>
             <Txt variant="heading" color={colors.textInverse}>
               {preview ? imageSideLabels[preview.side] : ''}
             </Txt>
             <Pressable
-              onPress={() => setPreview(null)}
+              onPress={() => setPreviewId(null)}
               hitSlop={12}
               accessibilityRole="button"
-              accessibilityLabel="Close preview"
+              accessibilityLabel="Keep this photograph and close"
             >
               <Ionicons name="close" size={26} color={colors.textInverse} />
             </Pressable>
@@ -337,26 +371,31 @@ export function CaptureScreen() {
 
               {/* Pinch is not a discoverable gesture on a picture that looks
                   static, and an inspector who does not know the detail is
-                  reachable retakes the photograph instead of opening it. */}
+                  reachable retakes the photograph instead of opening it.
+
+                  The second sentence says the edit is optional in as many
+                  words. It used to describe only what Edit does for you, which
+                  on a screen whose every button changed the photograph read as
+                  a step to be completed rather than a tool to be ignored. */}
               <Txt variant="caption" color={colors.navyTint} style={{ marginBottom: spacing.md }}>
-                Pinch or double-tap the image to zoom in on a declaration.
+                Pinch or double-tap the image to zoom in on a declaration. If the photograph is
+                good, tap Done — editing is only for a label that came out sideways, or a frame
+                that caught half the shelf.
               </Txt>
 
               <Row gap={spacing.md}>
-                {/* Trimming a frame that caught half a shelf is the difference
-                    between a label at full resolution and one at a fifth of it.
-                    Offered here rather than at capture, because a crop imposed
-                    before the inspector has seen the photograph can remove a
-                    declaration with nothing left to show it was ever there. */}
+                {/* Turning a panel upright and trimming a frame that caught half
+                    a shelf are both the difference between a label the reader
+                    resolves and one it does not. Offered here rather than at
+                    capture, because an edit imposed before the inspector has
+                    seen the photograph can remove a declaration with nothing
+                    left to show it was ever there. */}
                 <Button
-                  title="Crop"
+                  title="Edit"
                   icon="crop-outline"
                   variant="secondary"
                   style={{ flex: 1 }}
-                  onPress={() => {
-                    setCropping(preview);
-                    setPreview(null);
-                  }}
+                  onPress={() => setEditingId(preview.id)}
                 />
                 <Button
                   title="Replace"
@@ -365,7 +404,7 @@ export function CaptureScreen() {
                   style={{ flex: 1 }}
                   onPress={() => {
                     const target = preview.id;
-                    setPreview(null);
+                    setPreviewId(null);
                     // Offers camera or gallery — an inspector may already have
                     // a usable photograph on the device.
                     void retakeFrom(target);
@@ -379,21 +418,43 @@ export function CaptureScreen() {
                   onPress={() => confirmDelete(preview)}
                 />
               </Row>
+
+              {/*
+                ── THE WAY OUT WHEN NOTHING IS WRONG ──────────────────────────
+
+                Every other control on this sheet changes the photograph: edit
+                it, replace it, delete it. The only way to say "this one is
+                fine" was the small ✕ in the top corner, and against three
+                prominent buttons that read as the cancel on a step that still
+                had to be done — so inspectors were cropping photographs that
+                needed no crop, to reach an action that looked like finishing.
+
+                Done is the common case, so it gets the primary button and the
+                full width at the bottom of the sheet, where a thumb already
+                is. It does exactly what the ✕ does; the ✕ stays for anyone who
+                reaches for it first.
+              */}
+              <Button
+                title="Done"
+                icon="checkmark"
+                onPress={() => setPreviewId(null)}
+                style={{ marginTop: spacing.md }}
+              />
             </View>
           ) : null}
         </View>
       </Modal>
 
-      <CropImage
-        visible={cropping !== null}
-        uri={cropping?.uri ?? null}
-        onCancel={() => setCropping(null)}
-        onCropped={(result: CropResult) => {
-          const target = cropping;
-          setCropping(null);
+      <ImageEditor
+        visible={editing !== null}
+        uri={editing?.uri ?? null}
+        onCancel={() => setEditingId(null)}
+        onEdited={(result: EditResult) => {
+          const target = editing;
+          setEditingId(null);
           if (!target) return;
 
-          // The store entry points at the trimmed file; the original stays on
+          // The store entry points at the edited file; the original stays on
           // disk, so a crop that took too much is not a lost photograph.
           replaceImage(target.id, {
             uri: result.uri,
@@ -402,6 +463,12 @@ export function CaptureScreen() {
             width: result.width,
             height: result.height,
           });
+
+          // Back to the preview the edit was started from, now showing the
+          // result — an inspector who has just trimmed a label wants to see
+          // what they are left with, not the screen they came from two steps
+          // ago. `preview` reads from the store, so it is the new file.
+          setPreviewId(target.id);
         }}
       />
     </Screen>

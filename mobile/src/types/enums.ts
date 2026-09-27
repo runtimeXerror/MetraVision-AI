@@ -36,21 +36,26 @@ export const PACKAGE_ORIGINS = ['domestic', 'imported'] as const;
 export type PackageOrigin = (typeof PACKAGE_ORIGINS)[number];
 
 /**
- * Overall verdict. Deliberately three-valued: a compliance system that can only
- * say pass/fail forces the model to guess when it should be escalating to a human.
+ * Overall verdict.
+ *
+ * Two-valued, as on the server. There used to be a third, `review_required`,
+ * for the cases the engine would not decide — and it leaked into every count
+ * and every badge as an amber non-answer. A scan is either compliant or it is
+ * not; the inspector who confirms the declarations and files the record is
+ * the review.
  */
-export const COMPLIANCE_STATUSES = ['compliant', 'violation', 'review_required'] as const;
+export const COMPLIANCE_STATUSES = ['compliant', 'violation'] as const;
 export type ComplianceStatus = (typeof COMPLIANCE_STATUSES)[number];
 
 /** Result of one deterministic rule check. */
-export const CHECK_RESULTS = ['pass', 'fail', 'warning', 'not_applicable'] as const;
+export const CHECK_RESULTS = ['pass', 'fail', 'not_applicable'] as const;
 export type CheckResult = (typeof CHECK_RESULTS)[number];
 
 export const SEVERITIES = ['critical', 'major', 'minor'] as const;
 export type Severity = (typeof SEVERITIES)[number];
 
 /** Lifecycle of the inspection record itself (distinct from its verdict). */
-export const INSPECTION_STATUSES = ['draft', 'analysing', 'pending_review', 'finalized'] as const;
+export const INSPECTION_STATUSES = ['draft', 'analysing', 'analysed', 'finalized'] as const;
 export type InspectionStatus = (typeof INSPECTION_STATUSES)[number];
 
 /** Which face of the package an image shows. */

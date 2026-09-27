@@ -299,7 +299,11 @@ function KpiRow({
     {
       label: 'Active inspectors',
       value: formatNumber(summary.activeInspectors),
-      hint: `Mean score ${summary.averageScore}/100`,
+      // Was `Mean score ${summary.averageScore}/100`, which had nothing to do
+      // with the inspector count it sat under, and carried the compliance score
+      // back onto a dashboard the rest of the product had already dropped it
+      // from. What the figure counts is what it should say.
+      hint: 'On the roll and active',
       icon: Users,
       tone: 'info',
       to: '/inspectors',

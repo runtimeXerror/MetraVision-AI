@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Cpu,
+  Download,
   FileBarChart,
   FlaskConical,
   Images,
@@ -45,7 +46,7 @@ import {
 } from '@/components/ui/primitives';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states';
 import { TBody, TD, TH, THead, TR, TableWrap } from '@/components/ui/table';
-import { inspectionService } from '@/services';
+import { inspectionService, reportService } from '@/services';
 import { useIsSupervisor } from '@/store/authStore';
 import type { ExtractedField, Inspection, Violation } from '@/types/api';
 import { cn } from '@/utils/cn';
@@ -251,15 +252,23 @@ function OverviewTab({ inspection }: { inspection: Inspection }) {
             <CardHeader icon={ShieldAlert} title="Verdict" />
             <CardBody className="space-y-3">
               <ComplianceBadge status={inspection.complianceResult.status} />
-              <div>
-                <p className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">
-                  Compliance score
-                </p>
-                <p className="mt-1 text-2xl font-semibold tabular text-ink">
-                  {inspection.complianceResult.score}
-                  <span className="text-base font-normal text-ink-faint">/100</span>
-                </p>
-              </div>
+              {/*
+                ── NO SCORE AGAINST A SINGLE RECORD ──────────────────────────
+
+                A "Compliance score 67/100" stood here. Nobody could say what
+                it was 67% *of*: it is the share of the checks the engine could
+                decide that this package met, with every inapplicable rule and
+                every unmeasured one outside the fraction. Printed beside a
+                verdict it reads as a grade, as though the package were 67%
+                legal — and no packaged commodity is. One missing MRP out of
+                twenty checks scores 95%, and rule 6(1)(e) is graded CRITICAL.
+
+                The inspector app dropped it for that reason and states the
+                counts instead; this is the console catching up. The figure is
+                still computed and still on the record — it is defensible as an
+                aggregate over many inspections, which is the only place it now
+                appears.
+              */}
               <Divider />
               <div>
                 <p className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">
@@ -600,7 +609,6 @@ function LegacyComplianceView({
       <Card>
         <CardBody className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <VerdictMedallion status={result.status} score={result.score} />
             <div>
               <ComplianceBadge status={result.status} />
               <p className="mt-2 max-w-md text-sm text-ink-muted">
@@ -611,24 +619,35 @@ function LegacyComplianceView({
             </div>
           </div>
 
-          <dl className="flex gap-6">
-            <div>
-              <dt className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">
-                Checks passed
-              </dt>
-              <dd className="mt-1 text-lg font-semibold tabular text-compliant">
-                {result.checks.filter((check) => check.result === 'PASS').length}
-                <span className="text-sm font-normal text-ink-faint">/{result.checks.length}</span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">
-                Findings
-              </dt>
-              <dd className="mt-1 text-lg font-semibold tabular text-violation">
-                {result.violations.length}
-              </dd>
-            </div>
+          {/*
+            The four states the engine actually reaches, each counted and named
+            — the same tally the inspector app shows. It replaces a score dial
+            whose needle was the same misleading fraction as the figure beside
+            it, and it says the quiet part: how many rules never reached this
+            package at all. A count of those dropped silently would make the
+            other three read as the whole rule book.
+          */}
+          <dl className="flex flex-wrap gap-6">
+            <VerdictCount
+              label="Compliant"
+              value={result.checks.filter((check) => check.result === 'PASS').length}
+              tone="text-compliant"
+            />
+            <VerdictCount
+              label="Not compliant"
+              value={result.checks.filter((check) => check.result === 'FAIL').length}
+              tone="text-violation"
+            />
+            <VerdictCount
+              label="Needs review"
+              value={result.checks.filter((check) => check.result === 'WARNING').length}
+              tone="text-review"
+            />
+            <VerdictCount
+              label="Not applicable"
+              value={result.checks.filter((check) => check.result === 'NOT_APPLICABLE').length}
+              tone="text-ink-muted"
+            />
           </dl>
         </CardBody>
       </Card>
@@ -715,34 +734,19 @@ function LegacyComplianceView({
   );
 }
 
-/** Score dial. Communicates the verdict by shape and figure, not colour alone. */
-function VerdictMedallion({ status, score }: { status: string; score: number }) {
-  const tone =
-    status === 'COMPLIANT'
-      ? 'text-compliant'
-      : status === 'VIOLATION_DETECTED'
-        ? 'text-violation'
-        : 'text-review';
-
-  const circumference = 2 * Math.PI * 26;
-
+/**
+ * One count from the verdict tally.
+ *
+ * This replaced `VerdictMedallion`, a dial that drew the compliance score as an
+ * arc. The arc had the same problem as the number it framed — it read as a
+ * grade out of a hundred — and it added a second one: a package with one
+ * critical contravention drew an almost-complete ring.
+ */
+function VerdictCount({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
-    <div className="relative grid h-[4.5rem] w-[4.5rem] shrink-0 place-items-center">
-      <svg viewBox="0 0 64 64" className="absolute inset-0 -rotate-90" aria-hidden>
-        <circle cx="32" cy="32" r="26" fill="none" strokeWidth="5" className="stroke-line" />
-        <circle
-          cx="32"
-          cy="32"
-          r="26"
-          fill="none"
-          strokeWidth="5"
-          strokeLinecap="round"
-          className={cn('stroke-current transition-all', tone)}
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - score / 100)}
-        />
-      </svg>
-      <span className={cn('text-lg font-semibold tabular', tone)}>{score}</span>
+    <div>
+      <dt className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">{label}</dt>
+      <dd className={cn('mt-1 text-lg font-semibold tabular', tone)}>{value}</dd>
     </div>
   );
 }
@@ -1105,6 +1109,25 @@ function ReportTab({ inspection }: { inspection: Inspection }) {
     queryFn: () => inspectionService.getReport(inspection.id),
   });
 
+  const [printing, setPrinting] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
+
+  async function download() {
+    setPrinting(true);
+    setPrintError(null);
+    try {
+      await reportService.printReport(inspection.id, inspection.inspectionId);
+    } catch (cause) {
+      setPrintError(
+        cause instanceof Error
+          ? `The report could not be opened. ${cause.message}`
+          : 'The report could not be opened.',
+      );
+    } finally {
+      setPrinting(false);
+    }
+  }
+
   if (isPending) {
     return (
       <Card>
@@ -1127,17 +1150,33 @@ function ReportTab({ inspection }: { inspection: Inspection }) {
 
   return (
     <div className="space-y-4">
-      <Notice tone="info" icon={FileBarChart}>
-        This is the structured report payload the API returns for this inspection. Rendering it to
-        a signed PDF belongs on the server, where the document can be produced from this record
-        rather than from whatever a browser happened to be displaying.
-      </Notice>
+      {printError ? (
+        <Notice tone="violation" icon={FileBarChart}>
+          {printError}
+        </Notice>
+      ) : (
+        <Notice tone="info" icon={FileBarChart}>
+          Download opens the report the server renders from this record — the same document the
+          inspector app produces — and hands it to the browser's print dialogue, where it saves as
+          PDF. The payload below is that document's data.
+        </Notice>
+      )}
 
       <Card>
         <CardHeader
           icon={FileBarChart}
           title="Inspection report"
           description={`Generated ${formatDateTime(data?.generatedAt)}`}
+          action={
+            <Button
+              size="sm"
+              icon={Download}
+              loading={printing}
+              onClick={() => void download()}
+            >
+              Download PDF
+            </Button>
+          }
         />
         <CardBody>
           <pre className="scroll-slim max-h-[32rem] overflow-auto rounded-lg bg-surface-sunken p-4 font-mono text-xs leading-relaxed text-ink">

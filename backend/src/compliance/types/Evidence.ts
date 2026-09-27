@@ -67,14 +67,12 @@ export type FieldExtractionStatus = (typeof FIELD_EXTRACTION_STATUSES)[number];
 export interface ExtractedField {
   /** What was read. `null` for every status other than FOUND/HUMAN_VERIFIED. */
   value: string | number | null;
-  /** 0–1. Confidence in `value`. Ignored when a human supplied it. */
+  /** 0–1. The reader's confidence in `value`, where it reported one. Informational. */
   confidence?: number;
   status?: FieldExtractionStatus;
   /**
-   * 0–1 confidence that the declaration is genuinely *not on the package*, as
-   * distinct from not having been found. This is the number that separates a
-   * violation from a review — see `DecisionEngine`. Absent means unknown, which
-   * is treated as weak.
+   * 0–1 confidence that the declaration is genuinely *not on the package*.
+   * Recorded for the audit trail; the decision no longer turns on it.
    */
   absenceConfidence?: number;
   /** Unit, where the extraction stage separated it from the number. */
@@ -129,9 +127,9 @@ export interface ProductContext {
 export interface EvidenceContext {
   imageIds?: string[];
   /**
-   * 0–1. How completely the package was captured. A missing declaration on a
-   * package photographed from one side is not evidence of anything, and this
-   * is the number that says so.
+   * 0–1. How completely the package was captured, from the faces photographed.
+   * Printed on the report so a reader knows how much of the package was seen;
+   * it does not change any check's outcome.
    */
   captureCompleteness?: number;
   /** 0–1 mean image quality from a future image-quality stage. */
@@ -143,31 +141,6 @@ export interface EvidenceContext {
   extractionEngineVersion?: string;
 }
 
-/** Overridable confidence policy. Thresholds are configuration, not law. */
-export interface ConfidenceThresholds {
-  /**
-   * At or above this, a read is treated as reliable enough that a failed check
-   * is a finding rather than a question.
-   */
-  sufficient: number;
-  /** Below this, a read is too weak to act on at all. */
-  weak: number;
-  /**
-   * Confidence that a declaration is genuinely absent, at or above which its
-   * absence may be recorded as a violation rather than sent for review.
-   */
-  absenceSufficient: number;
-  /** Capture completeness below which no absence may be called a violation. */
-  minimumCaptureCompleteness: number;
-}
-
-export const DEFAULT_CONFIDENCE_THRESHOLDS: ConfidenceThresholds = {
-  sufficient: 0.85,
-  weak: 0.5,
-  absenceSufficient: 0.85,
-  minimumCaptureCompleteness: 0.7,
-};
-
 /** The request the engine evaluates. */
 export interface ComplianceEvaluationRequest {
   inspectionId?: string;
@@ -178,7 +151,6 @@ export interface ComplianceEvaluationRequest {
   fields: Record<string, ExtractedField>;
   evidence?: EvidenceContext;
   options?: {
-    thresholds?: Partial<ConfidenceThresholds>;
     /** Include rules that are not yet in force, marked as such. Never evaluated. */
     includeFutureRules?: boolean;
   };

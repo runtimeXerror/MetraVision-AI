@@ -1,24 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StackActions, useNavigation } from '@react-navigation/native';
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 
 import { ComplianceBadge, ImageThumb } from '../../components/domain';
 import { ImageViewer } from '../../components/ImageViewer';
 import { Input } from '../../components/forms';
-import { ActionBar, Body, Notice, Screen, ScreenHeader } from '../../components/layout';
+import { ActionBar, Body, Screen, ScreenHeader } from '../../components/layout';
 import { Button, Card, EmptyState, Row, SectionHeader, Txt } from '../../components/ui';
 import { productCategoryLabels } from '../../constants/labels';
 import { colors, radius, spacing } from '../../constants/theme';
 import { toApiError } from '../../services/api';
 import { finalizeInspection } from '../../services/inspectionService';
-import { effectiveValue, fieldsNeedingReview, useAnalysisStore } from '../../store/analysisStore';
+import { effectiveValue, useAnalysisStore } from '../../store/analysisStore';
 import { useAuthStore } from '../../store/authStore';
 import { useHistoryStore } from '../../store/historyStore';
 import { useImageStore } from '../../store/imageStore';
 import { useDraftStore } from '../../store/draftStore';
 import { useInspectionStore } from '../../store/inspectionStore';
-import { formatDateTime, pluralize } from '../../utils/format';
+import { formatDateTime } from '../../utils/format';
 
 /** Final confirmation before the inspection becomes a record. */
 export function FinalizeScreen() {
@@ -43,8 +43,6 @@ export function FinalizeScreen() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
-
-  const pending = useMemo(() => fieldsNeedingReview(analysis), [analysis]);
 
   if (!analysis || !draft.id || !draft.referenceId || !inspector) {
     return (
@@ -125,14 +123,6 @@ export function FinalizeScreen() {
         keyboardVerticalOffset={90}
       >
         <Body>
-          {pending.length > 0 ? (
-            <Notice
-              tone="warning"
-              icon="alert-circle-outline"
-              text={`${pluralize(pending.length, 'declaration')} still awaits your confirmation. You can finalize now — the record will be filed as pending review.`}
-            />
-          ) : null}
-
           {/* Business */}
           <SectionHeader title="Business" style={{ marginTop: spacing.lg }} />
           <Card>

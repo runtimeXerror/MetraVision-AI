@@ -1,5 +1,5 @@
 {
-  "fieldsCorrect": 12,
-  "fieldsTotal": 12,
-  "note": "Raised 2026-09-04 from 9/12 after the commodity vocabulary, the prominence-based brand and the ingredient continuation. Raise it whenever the scorecard goes up; never lower it to make a build pass."
+  "fieldsCorrect": 27,
+  "fieldsTotal": 28,
+  "note": "Re-recorded 2026-09-07 when minimalist-salicylic-cleanser joined the corpus, taking it from one package to two. Not a fall: the first package still reads 12/12, and the new one reads 15/16 having arrived at 9/16 with a false finding. The one it misses is named in that case's knownGaps — its ingredient list is legible only in a frame that does not show the heading, which no geometric reader can pair and the LLM stage is meant to. Raise this whenever the scorecard goes up; never lower it to make a build pass."
 }

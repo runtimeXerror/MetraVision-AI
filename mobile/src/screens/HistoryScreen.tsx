@@ -61,7 +61,6 @@ const HEADINGS: Record<StatusFilter, string> = {
   all: 'Inspection History',
   compliant: 'Compliant',
   violation: 'Violations',
-  review_required: 'Pending Reviews',
 };
 
 export function HistoryScreen() {

@@ -17,24 +17,19 @@ import type { RuleSeverity } from '../../compliance/types/Rule';
  * where nobody could tell the difference.
  *
  * On severity (§19 of the brief): the corpus grades each *rule* CRITICAL, MAJOR
- * or MINOR, and that grading is carried through untouched. But a rule's grade
- * describes the requirement, not this package — it says how serious it is to
- * sell goods with no declared price, not how sure we are that these goods have
- * none. So each issue also carries a `classification`, derived from the check's
- * own status:
+ * or MINOR, and that grading is carried through untouched. It describes the
+ * requirement, not this package — how serious it is to sell goods with no
+ * declared price.
  *
- *     VIOLATION_DETECTED    → POTENTIAL_VIOLATION
- *     REVIEW_REQUIRED       → REVIEW
- *     INSUFFICIENT_EVIDENCE → INFO
- *
- * Nothing here ever prints "confirmed violation". The engine's strongest verdict
- * is that a requirement was not satisfied on evidence good enough to act on;
- * whether an offence was committed is a decision for a person with a statutory
- * power, and this system does not have one.
+ * An issue is raised for every check that was not satisfied and for nothing
+ * else. Nothing here ever prints "confirmed violation": the engine's verdict is
+ * that a requirement was not satisfied on what was read; whether an offence
+ * was committed is a decision for a person with a statutory power, and this
+ * system does not have one.
  * ────────────────────────────────────────────────────────────────────────────
  */
 
-export const ISSUE_CLASSIFICATIONS = ['POTENTIAL_VIOLATION', 'REVIEW', 'INFO'] as const;
+export const ISSUE_CLASSIFICATIONS = ['POTENTIAL_VIOLATION'] as const;
 export type IssueClassification = (typeof ISSUE_CLASSIFICATIONS)[number];
 
 export interface ComplianceIssue {
@@ -75,8 +70,6 @@ export interface ComplianceIssue {
 
 const CLASSIFICATION_BY_STATUS: Partial<Record<ComplianceCheck['status'], IssueClassification>> = {
   VIOLATION_DETECTED: 'POTENTIAL_VIOLATION',
-  REVIEW_REQUIRED: 'REVIEW',
-  INSUFFICIENT_EVIDENCE: 'INFO',
 };
 
 /**
@@ -104,26 +97,11 @@ const TITLE_BY_REASON: Record<string, string> = {
    * could do.
    */
   DECLARATION_ABSENT: 'Not printed on the package',
-  DECLARATION_ABSENT_LOW_CONFIDENCE: 'Not found — needs checking on the packet',
   DECLARATION_UNREADABLE: 'Could not be read',
   FORMAT_NOT_SATISFIED: 'Printed in the wrong form',
-  FORMAT_NOT_SATISFIED_LOW_CONFIDENCE: 'Form looks wrong — read was weak',
   VALUE_OUT_OF_RANGE: 'Value outside the permitted range',
   UNIT_NOT_PERMITTED: 'Not a standard unit',
   CROSS_FIELD_INCOMPLETE: 'Related declarations are incomplete',
-  /**
-   * Font size, in millimetres.
-   *
-   * Not a limitation of the reader but of the photograph: a bounding box is in
-   * pixels, and converting pixels to millimetres needs the physical scale of
-   * the package, which no single image carries. Guessing it would produce a
-   * measurement precise enough to look authoritative and wrong often enough to
-   * fail a compliant package on Table-I, so the check is handed to the person
-   * who is holding the package and can put a rule against it.
-   */
-  MEASUREMENT_NOT_AVAILABLE: 'Measure the type height on the packet',
-  CAPTURE_INCOMPLETE: 'Not enough of the package was photographed',
-  NO_EVIDENCE_SUPPLIED: 'Nothing was photographed for this',
 };
 
 /**
@@ -145,9 +123,7 @@ function issueIdFor(inspectionId: string | undefined, check: ComplianceCheck): s
 export interface IssueSummary {
   total: number;
   potentialViolations: number;
-  review: number;
-  info: number;
-  /** Counts by the corpus's own rule grading, across potential violations only. */
+  /** Counts by the corpus's own rule grading. */
   bySeverity: Record<RuleSeverity, number>;
 }
 
@@ -198,36 +174,21 @@ export function generateIssues(
     });
   }
 
-  /**
-   * Ordered by what an inspector needs to see first: findings, then open
-   * questions, then notes; within each, the corpus's own grading.
-   */
-  const classificationRank: Record<IssueClassification, number> = {
-    POTENTIAL_VIOLATION: 0,
-    REVIEW: 1,
-    INFO: 2,
-  };
+  /** Ordered by the corpus's own grading, then by rule. */
   const severityRank: Record<RuleSeverity, number> = { CRITICAL: 0, MAJOR: 1, MINOR: 2 };
 
   issues.sort(
-    (a, b) =>
-      classificationRank[a.classification] - classificationRank[b.classification] ||
-      severityRank[a.severity] - severityRank[b.severity] ||
-      a.ruleId.localeCompare(b.ruleId),
+    (a, b) => severityRank[a.severity] - severityRank[b.severity] || a.ruleId.localeCompare(b.ruleId),
   );
 
   const bySeverity: Record<RuleSeverity, number> = { CRITICAL: 0, MAJOR: 0, MINOR: 0 };
-  for (const issue of issues) {
-    if (issue.classification === 'POTENTIAL_VIOLATION') bySeverity[issue.severity] += 1;
-  }
+  for (const issue of issues) bySeverity[issue.severity] += 1;
 
   return {
     issues,
     summary: {
       total: issues.length,
-      potentialViolations: issues.filter((issue) => issue.classification === 'POTENTIAL_VIOLATION').length,
-      review: issues.filter((issue) => issue.classification === 'REVIEW').length,
-      info: issues.filter((issue) => issue.classification === 'INFO').length,
+      potentialViolations: issues.length,
       bySeverity,
     },
   };

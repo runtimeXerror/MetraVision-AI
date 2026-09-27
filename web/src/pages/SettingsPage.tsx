@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  Bell,
   Bot,
   Database,
   HardDrive,
@@ -133,22 +132,12 @@ export function SettingsPage() {
           </CardBody>
         </Card>
 
-        {/* Notifications */}
-        <Card>
-          <CardHeader
-            icon={Bell}
-            title="Notification preferences"
-            description="What the bell reports"
-          />
-          <CardBody>
-            <Notice tone="neutral" icon={Bell}>
-              Notifications are derived from live inspection figures — pending reviews, open
-              findings and drafts — rather than stored as their own records. There is nothing to
-              subscribe to yet, so there is nothing here to configure. When a notification service
-              exists, its preferences will appear in this section.
-            </Notice>
-          </CardBody>
-        </Card>
+        {/* A "Notification preferences" card stood here whose entire content
+            was a notice explaining that there was nothing to configure. A
+            settings page is a list of things you can change; an entry that
+            exists to say it cannot be changed is one more row to read on the
+            way to the ones that can. The bell's behaviour — the last day's
+            figures, clearable by an administrator — is in the bell itself. */}
 
         {/* System */}
         <Card>

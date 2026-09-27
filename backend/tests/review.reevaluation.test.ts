@@ -126,6 +126,55 @@ describe('review re-evaluation runs the Legal Metrology engine', () => {
     expect(['VIOLATION_DETECTED', 'REVIEW_REQUIRED']).toContain(after.status);
   });
 
+  /**
+   * ── THE VERDICT THE APP READS FOLLOWS THE ENGINE ────────────────────────
+   *
+   * Every test above reads `scan.legal`, which is the engine's own record, and
+   * they all passed while this was broken.
+   *
+   * `complianceResult` is the projection the app, the register and the
+   * analytics actually read, and the review path was not rebuilding it. An
+   * officer confirmed a declaration was absent, the engine turned it into a
+   * finding and recorded `reviewRequired: 0` — and the record went on saying
+   * "Review Required" with a needs-review count beside it, on a record that
+   * had been reviewed and filed. Nothing could clear it, because the field it
+   * was asking about was already decided.
+   *
+   * So this asserts on the projection and not on the engine: that the two
+   * agree is the property that was missing.
+   */
+  it('re-derives the verdict the app reads, not only the engine record', async () => {
+    const scan = await scanFixture('missing_declarations');
+
+    const engineField = Object.keys(scan.scan.extraction.fields).find(
+      (name) => scan.scan.extraction.fields[name]?.status === 'NOT_FOUND',
+    );
+    expect(engineField, 'fixture should leave at least one declaration unfound').toBeTruthy();
+
+    await review(scan.inspectionId, [{ fieldName: engineField!, action: 'MARKED_UNAVAILABLE' }]);
+
+    const record = (await detail(scan.inspectionId)).body.data;
+    const legal = record.scan.legal;
+
+    // The projection carries the engine's verdict, collapsed onto the three
+    // states the workflow has — never a stale one from the original scan.
+    const expected =
+      legal.status === 'VIOLATION_DETECTED'
+        ? 'VIOLATION_DETECTED'
+        : legal.status === 'COMPLIANT'
+          ? 'COMPLIANT'
+          : 'REVIEW_REQUIRED';
+
+    expect(record.complianceResult.status).toBe(expected);
+    expect(record.status).toBe(expected);
+
+    // And it was re-derived rather than left alone: a projection built before
+    // the review cannot know about a declaration a person has since settled.
+    expect(new Date(record.complianceResult.evaluatedAt).getTime()).toBeGreaterThanOrEqual(
+      new Date(legal.evaluatedAt).getTime() - 1000,
+    );
+  });
+
   it('does not treat an unreviewed declaration as confirmed', async () => {
     const scan = await scanFixture('missing_declarations');
     const before = (await detail(scan.inspectionId)).body.data.scan.legal.issueSummary;

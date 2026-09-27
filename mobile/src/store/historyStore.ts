@@ -162,7 +162,6 @@ const EMPTY_STATS: ReportStats = {
   totalInspections: 0,
   compliant: 0,
   violations: 0,
-  pendingReviews: 0,
   averageScore: 0,
 };
 

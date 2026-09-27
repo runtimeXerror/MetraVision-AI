@@ -1,10 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import {
   ArrowLeft,
   ClipboardCheck,
+  Mail,
   MapPin,
   ShieldAlert,
   ShieldCheck,
+  UserPlus,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -14,15 +17,19 @@ import { InspectorChart, TrendChart } from '@/components/charts';
 import { RoleBadge, UserStatusBadge } from '@/components/domain/badges';
 import {
   Avatar,
+  Button,
   Card,
   CardBody,
   CardHeader,
   DetailRow,
+  Notice,
   PageHeader,
 } from '@/components/ui/primitives';
 import { CardSkeleton, ChartSkeleton, EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { TBody, TD, TH, THead, TR, TableWrap } from '@/components/ui/table';
+import { Input } from '@/components/ui/forms';
 import { dashboardService, userService } from '@/services';
+import { useIsAdmin } from '@/store/authStore';
 import { cn } from '@/utils/cn';
 import { formatNumber, formatPercent, formatRelative } from '@/utils/format';
 
@@ -35,6 +42,9 @@ import { formatNumber, formatPercent, formatRelative } from '@/utils/format';
  */
 
 export function InspectorsPage() {
+  const isAdmin = useIsAdmin();
+  const [enrolling, setEnrolling] = useState(false);
+
   const { data, isPending, error, refetch } = useQuery({
     queryKey: ['analytics', 'inspector-activity'],
     queryFn: () => userService.listInspectorActivity(),
@@ -45,7 +55,21 @@ export function InspectorsPage() {
       <PageHeader
         title="Inspectors"
         description="Field officers, their workload and the outcomes they are recording."
+        actions={
+          isAdmin ? (
+            <Button icon={UserPlus} onClick={() => setEnrolling(true)}>
+              Register inspector
+            </Button>
+          ) : null
+        }
       />
+
+      {enrolling ? (
+        <EnrolDialog
+          onClose={() => setEnrolling(false)}
+          onEnrolled={() => void refetch()}
+        />
+      ) : null}
 
       {isPending ? (
         <>
@@ -374,5 +398,170 @@ export function InspectorDetailPage() {
         </CardBody>
       </Card>
     </>
+  );
+}
+
+/* ── Enrolling an officer ─────────────────────────────────────────────────── */
+
+/**
+ * Registers an officer, then shows the credentials once.
+ *
+ * The dialog has two states rather than closing on success, and that is the
+ * point: the temporary password exists in exactly one response and is stored
+ * only as a hash. If this closed on save, the administrator would have enrolled
+ * someone they can no longer give access to, and the only remedy would be
+ * deleting the account and starting again.
+ *
+ * Sending the credentials by email is the intended delivery and is not built.
+ * Until it is, the dialog says so and puts the two values where they can be
+ * copied — rather than implying a mail went out that did not.
+ */
+function EnrolDialog({ onClose, onEnrolled }: { onClose: () => void; onEnrolled: () => void }) {
+  const [form, setForm] = useState({ name: '', email: '', district: '', state: '' });
+  const [issued, setIssued] = useState<userService.EnrolledInspector | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      userService.createInspector({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        district: form.district.trim() || undefined,
+        state: form.state.trim() || undefined,
+      }),
+    onSuccess: (result) => {
+      setIssued(result);
+      onEnrolled();
+    },
+  });
+
+  const ready = form.name.trim().length >= 2 && /\S+@\S+\.\S+/.test(form.email);
+
+  if (issued) {
+    return (
+      <Dialog
+        title="Officer enrolled"
+        description="These credentials are shown once. Hand them over before closing this dialog."
+        onClose={onClose}
+        footer={<Button onClick={onClose}>Done</Button>}
+      >
+        <Notice tone="review" icon={Mail}>
+          Email delivery is not wired up yet, so nothing has been sent. Give the officer the
+          Inspector ID and password below; they can change the password from their profile after
+          signing in.
+        </Notice>
+        <dl className="divide-y divide-line rounded-lg border border-line">
+          <CredentialRow label="Name" value={issued.user.name} />
+          <CredentialRow label="Email" value={issued.user.email} />
+          <CredentialRow label="Inspector ID" value={issued.user.inspectorId} mono />
+          <CredentialRow label="Temporary password" value={issued.temporaryPassword} mono />
+        </dl>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog
+      title="Register inspector"
+      description="The Inspector ID and a temporary password are generated automatically — you do not set them."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button loading={mutation.isPending} disabled={!ready} onClick={() => mutation.mutate()}>
+            Register
+          </Button>
+        </>
+      }
+    >
+      {mutation.error ? (
+        <Notice tone="violation" icon={ShieldAlert}>
+          {mutation.error instanceof Error
+            ? mutation.error.message
+            : 'The officer could not be registered.'}
+        </Notice>
+      ) : null}
+
+      <Input
+        label="Full name"
+        value={form.name}
+        onChange={(event) => setForm({ ...form, name: event.target.value })}
+        placeholder="Ravi Sharma"
+      />
+      <Input
+        label="Email"
+        type="email"
+        value={form.email}
+        onChange={(event) => setForm({ ...form, email: event.target.value })}
+        placeholder="ravi.sharma@legalmetrology.gov.in"
+        hint="The address the credentials will be sent to once mail delivery is enabled."
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Input
+          label="District"
+          value={form.district}
+          onChange={(event) => setForm({ ...form, district: event.target.value })}
+          placeholder="Optional"
+        />
+        <Input
+          label="State"
+          value={form.state}
+          onChange={(event) => setForm({ ...form, state: event.target.value })}
+          placeholder="Optional"
+        />
+      </div>
+    </Dialog>
+  );
+}
+
+function CredentialRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+      <dt className="text-xs text-ink-muted">{label}</dt>
+      <dd className={cn('text-sm text-ink', mono && 'font-mono')}>{value}</dd>
+    </div>
+  );
+}
+
+/** Local to this page, matching the profile dialogs. */
+function Dialog({
+  title,
+  description,
+  children,
+  footer,
+  onClose,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        onClick={onClose}
+        aria-label="Close"
+        tabIndex={-1}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="relative w-full max-w-lg overflow-hidden rounded-card border border-line bg-surface shadow-pop"
+      >
+        <div className="border-b border-line px-5 py-4">
+          <h2 className="text-sm font-semibold text-ink">{title}</h2>
+          {description ? <p className="mt-0.5 text-xs text-ink-muted">{description}</p> : null}
+        </div>
+        <div className="space-y-4 p-5">{children}</div>
+        <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3.5">
+          {footer}
+        </div>
+      </div>
+    </div>
   );
 }

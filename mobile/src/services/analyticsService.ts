@@ -45,7 +45,6 @@ interface OverviewDTO {
     totalInspections: number;
     compliant: number;
     violations: number;
-    pendingReviews: number;
     complianceRate: number;
     lastActivityAt?: string;
   }>;
@@ -112,7 +111,6 @@ export async function getOverview(query: OverviewQuery = {}): Promise<DashboardO
         totalInspections: row.totalInspections,
         compliant: row.compliant,
         violations: row.violations,
-        pendingReviews: row.pendingReviews,
         complianceRate: row.complianceRate,
         lastActivityAt: row.lastActivityAt,
       }),

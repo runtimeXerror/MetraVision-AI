@@ -6,9 +6,14 @@
  *   npm run corpus -- --live --record   …and save the readings for next time
  *   npm run corpus -- --case minimalist just the cases whose slug matches
  *   npm run corpus -- --verbose         print every field, not only the misses
+ *   npm run corpus -- --llm             include the model stage (spends quota)
  *
  * See `tests/corpus/README.md` for how to add a package.
  */
+
+// First, and on its own line: it decides the model stage before the pipeline
+// below is imported and the provider is fixed. See the file for why.
+import './corpus-env.mts';
 
 import { loadCases, scoreCase, runCase, summarise, type CaseScore } from '../tests/corpus/runner';
 

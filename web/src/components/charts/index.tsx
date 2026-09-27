@@ -94,8 +94,29 @@ function useThemeColors(): ChartColors {
   return colors;
 }
 
-/** Shared tooltip chrome, so every chart's hover looks like the same product. */
-function tooltipStyle(colors: ChartColors) {
+/**
+ * Shared tooltip chrome, so every chart's hover looks like the same product.
+ *
+ * ── WHY `itemColor` EXISTS ──────────────────────────────────────────────────
+ *
+ * Recharts colours each tooltip row from the series it came from, and where
+ * that is missing it falls back to a hardcoded black:
+ *
+ *     color: entry.color || '#000'        DefaultTooltipContent.js
+ *
+ * A cartesian series always supplies one — the bar's fill, the area's stroke —
+ * so those rows are legible in both themes and the colour tells the reader
+ * which series a number belongs to. `Pie` supplies nothing: its tooltip
+ * payload carries only name, value, payload, dataKey and type (Pie.js), so
+ * every row falls through to black. On the light surface that reads fine,
+ * which is why it went unnoticed; on the dark surface it is black on
+ * near-black and the tooltip appears to open empty.
+ *
+ * So the colour is not forced globally — that would flatten the series
+ * colouring the cartesian charts depend on. A chart whose payload has no
+ * colour of its own passes `itemColor` and gets the theme's ink instead.
+ */
+function tooltipStyle(colors: ChartColors, itemColor?: string) {
   return {
     contentStyle: {
       background: colors.surface,
@@ -106,7 +127,7 @@ function tooltipStyle(colors: ChartColors) {
       padding: '0.5rem 0.75rem',
     },
     labelStyle: { color: colors.ink, fontWeight: 600, marginBottom: '0.25rem' },
-    itemStyle: { padding: '0.0625rem 0' },
+    itemStyle: { padding: '0.0625rem 0', ...(itemColor ? { color: itemColor } : {}) },
   };
 }
 
@@ -247,8 +268,11 @@ export function DistributionChart({
             <Cell key={slice.status} fill={toneFor[slice.status] ?? colors.neutral} />
           ))}
         </Pie>
+        {/* A pie tooltip shows one slice at a time, and the wedge and the
+            legend already carry its colour — so ink loses nothing here, and it
+            is the only value that stays readable in both themes. */}
         <Tooltip
-          {...tooltipStyle(colors)}
+          {...tooltipStyle(colors, colors.ink)}
           formatter={(value: number, name: string) => [
             `${formatNumber(value)} (${Math.round((value / total) * 100)}%)`,
             DISTRIBUTION_LABELS[name] ?? name,

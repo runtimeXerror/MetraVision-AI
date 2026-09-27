@@ -28,7 +28,9 @@ export const unitValidator: Validator = ({ field, spec }) => {
 
   if (value === null) {
     if (isUnreadable(field)) {
-      return { outcome: 'INDETERMINATE', detail: 'The declaration was located but could not be read.' };
+      // Located but not legible: recorded as not declared, for the inspector to
+      // confirm on the package. There is no third state to put it in.
+      return { outcome: 'NOT_SATISFIED', detail: 'The declaration was located but could not be read.' };
     }
     return { outcome: 'NOT_SATISFIED', detail: `No declaration was found. ${spec.expectation}` };
   }

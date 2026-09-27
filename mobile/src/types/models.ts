@@ -191,12 +191,10 @@ export interface AIAnalysis {
  *
  * Deliberately not the same vocabulary as `Severity`. Severity is the rule
  * set's grading of the *requirement* — how serious it is to sell goods with no
- * declared price. Classification is how good this scan's evidence is about
- * *this* package. A CRITICAL rule read from a blurred photograph is a `review`,
- * not a violation, and collapsing the two is how a compliance app starts
- * accusing traders of things the camera could not see.
+ * declared price. Classification is what the engine is asserting about *this*
+ * package, and it only ever raises an issue for a check that failed.
  */
-export type IssueClassification = 'potential_violation' | 'review' | 'info';
+export type IssueClassification = 'potential_violation';
 
 /** Where a declaration was read, so an inspector can check it on the photograph. */
 export interface IssueEvidence {
@@ -245,21 +243,14 @@ export interface ComplianceIssue {
   machineInterpretation: string;
 }
 
-/** The rule engine's five states, as the app spells them. */
-export type LegalStatus =
-  | 'compliant'
-  | 'violation_detected'
-  | 'review_required'
-  | 'not_applicable'
-  | 'insufficient_evidence';
+/** The rule engine's three states, as the app spells them. */
+export type LegalStatus = 'compliant' | 'violation_detected' | 'not_applicable';
 
 export interface LegalSummary {
   totalChecks: number;
   compliant: number;
   violations: number;
-  reviewRequired: number;
   notApplicable: number;
-  insufficientEvidence: number;
   /** Checks needing a physical measurement this version cannot take. */
   pendingCapability: number;
 }
@@ -356,19 +347,11 @@ export interface InspectionSummary {
   referenceId: string;
   businessName: string;
   productLabel: string;
-  complianceStatus: ComplianceStatus;
+  /** Absent until the record has been analysed — a draft has no verdict. */
+  complianceStatus?: ComplianceStatus;
   status: InspectionStatus;
   imageCount: number;
   violationCount: number;
-  /**
-   * Declarations nobody has ruled on yet.
-   *
-   * What the review queue is actually filtered by, here and on the server. A
-   * record leaves the queue when this reaches zero — not when it is filed,
-   * because an inspection can be filed with declarations still unanswered and
-   * those answers are still owed.
-   */
-  pendingDeclarations: number;
   createdAt: string;
 }
 
@@ -378,7 +361,6 @@ export interface ReportStats {
   totalInspections: number;
   compliant: number;
   violations: number;
-  pendingReviews: number;
   /** 0–100, mean compliance score across finalized inspections. */
   averageScore: number;
 }
@@ -410,7 +392,6 @@ export interface DashboardSummary {
   totalInspections: number;
   compliant: number;
   violations: number;
-  pendingReviews: number;
   finalized: number;
   drafts: number;
   /** 0–100, over assessed records. */
@@ -429,7 +410,6 @@ export interface TrendPoint {
   total: number;
   compliant: number;
   violations: number;
-  reviewRequired: number;
 }
 
 /**
@@ -470,7 +450,6 @@ export interface InspectorActivity {
   totalInspections: number;
   compliant: number;
   violations: number;
-  pendingReviews: number;
   /** 0–100. */
   complianceRate: number;
   lastActivityAt?: string;

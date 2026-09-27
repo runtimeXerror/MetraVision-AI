@@ -10,11 +10,17 @@ import {
   type InspectionDocument,
 } from '../models/Inspection';
 import { analyseInspection } from '../services/analysisService';
-import { evaluateCompliance, needsReview } from '../services/complianceService';
+import { evaluateCompliance } from '../services/complianceService';
 import type { ExtractionResult } from '../services/extraction';
 import type { AggregateOCRResult } from '../services/ocr';
-import { reevaluateWithVerifiedFields, toLegacyStatus } from '../services/scan';
-import { isPendingReviewExpr, statusFilter, type ProductCategory, type StatsDTO } from '../types/domain';
+import {
+  reevaluateWithVerifiedFields,
+  toLapsedDateFinding,
+  toLegacyChecks,
+  toLegacyStatus,
+  toLegacyViolations,
+} from '../services/scan';
+import { statusFilter, type ProductCategory, type StatsDTO } from '../types/domain';
 import { ApiError } from '../utils/ApiError';
 import { nextInspectionReference } from '../utils/referenceId';
 import { created, ok, paginated } from '../utils/respond';
@@ -150,12 +156,7 @@ export async function listInspections(req: Request, res: Response): Promise<Resp
     ];
   }
 
-  const sort: Record<string, SortOrder> =
-    params.sort === 'oldest'
-      ? { createdAt: 1 }
-      : params.sort === 'score'
-        ? { 'complianceResult.score': 1 }
-        : { createdAt: -1 };
+  const sort: Record<string, SortOrder> = params.sort === 'oldest' ? { createdAt: 1 } : { createdAt: -1 };
 
   const [items, total] = await Promise.all([
     Inspection.find(filter)
@@ -292,7 +293,7 @@ export async function analyzeInspection(req: Request, res: Response): Promise<Re
   } catch (error) {
     // Never strand the record in PROCESSING — an inspector would have no way
     // to retry from the mobile app.
-    inspection.status = inspection.extractedFields.length > 0 ? 'REVIEW_REQUIRED' : 'DRAFT';
+    inspection.status = 'DRAFT';
     await inspection.save();
     throw error;
   }
@@ -312,12 +313,25 @@ export async function analyzeInspection(req: Request, res: Response): Promise<Re
  * read; `scan.verified` records what the inspector concluded and what the
  * engine made of it, so the report can show both and the audit trail survives.
  */
-async function reevaluateFromScan(
-  inspection: InspectionDocument,
-  decisions: ReviewDecision[],
-  now: Date,
-): Promise<void> {
+export async function reevaluateFromScan(inspection: InspectionDocument, now: Date): Promise<void> {
   const stored = inspection.scan!;
+
+  /**
+   * Every determination on the record, not only the one just made.
+   *
+   * The engine input is rebuilt from the *original* extraction each time, so
+   * passing only the latest decision silently dropped the earlier ones: an
+   * inspector who had confirmed the MRP and then corrected the net quantity
+   * had the MRP re-evaluated as though nobody had looked at it. The record
+   * itself remembers every decision, and this reads them all back.
+   */
+  const decisions: ReviewDecision[] = inspection.extractedFields
+    .filter((field) => field.reviewAction !== undefined)
+    .map((field) => ({
+      fieldName: field.name,
+      action: field.reviewAction!,
+      value: field.humanVerifiedValue,
+    }));
 
   const extraction = {
     engine: stored.extraction.engine,
@@ -394,11 +408,46 @@ async function reevaluateFromScan(
     },
   };
 
-  // The engine's five states collapse onto the workflow's three, the same way
-  // the scan route does it: INSUFFICIENT_EVIDENCE and NOT_APPLICABLE both mean
-  // a person still has to look, and neither may be shown as a pass.
-  inspection.status = toLegacyStatus(outcome.compliance.status);
+  const legacyStatus = toLegacyStatus(outcome.compliance.status);
+
+  /**
+   * ── THE VERDICT THE APP READS HAS TO BE RE-DERIVED TOO ──────────────────
+   *
+   * `scan.legal` is the engine's own record and this function updated it.
+   * `complianceResult` is the projection of that record into the shape the
+   * app, the register and the analytics were built against — and it was left
+   * exactly as the scan first wrote it.
+   *
+   * So a review changed nothing an inspector could see. On a cleanser whose
+   * unit sale price the officer confirmed was not printed, the engine did the
+   * right thing: a verified absence became a finding, and the summary went to
+   * `violations: 1, reviewRequired: 0`. The app went on showing "Review
+   * Required", the tally went on counting a declaration that needed reviewing,
+   * and the officer — who had reviewed it, and filed the record — was told to
+   * review it again. Nothing they could do would clear it, because the field
+   * they were being asked about was already decided.
+   *
+   * Rebuilt here exactly as `scan.controller` builds it. The extracted fields
+   * are deliberately *not* rebuilt: they carry the officer's own decisions,
+   * and a projection has no business overwriting those.
+   */
+  inspection.complianceResult = {
+    status: legacyStatus,
+    checks: toLegacyChecks(outcome.compliance),
+    violations: [
+      ...toLegacyViolations(outcome.issues),
+      ...toLapsedDateFinding(outcome.compliance.warnings),
+    ],
+    warnings: outcome.compliance.warnings.map((warning) => warning.message),
+    ruleSetId: outcome.compliance.ruleSetVersion,
+    ruleSetLabel: `Legal Metrology (Packaged Commodities) Rules, 2011 — as in force on ${outcome.compliance.inspectionDate}`,
+    evaluatedAt: now,
+  };
+
+  // A filed record stays filed; only its verdict is refreshed.
+  if (inspection.status !== 'FINALIZED') inspection.status = legacyStatus;
   inspection.markModified('scan');
+  inspection.markModified('complianceResult');
 }
 
 
@@ -467,7 +516,7 @@ export async function reviewInspection(req: Request, res: Response): Promise<Res
    * route, which have no scan record to re-evaluate.
    */
   if (inspection.scan) {
-    await reevaluateFromScan(inspection, decisions, now);
+    await reevaluateFromScan(inspection, now);
     await inspection.save();
     return ok(res, inspection.toDTO(), 'Review recorded');
   }
@@ -633,10 +682,7 @@ export async function getStats(req: Request, res: Response): Promise<Response> {
     totalInspections: number;
     compliant: number;
     violations: number;
-    pendingReviews: number;
     finalized: number;
-    scoreSum: number;
-    scoreCount: number;
   }>([
     { $match: scope },
     {
@@ -649,15 +695,7 @@ export async function getStats(req: Request, res: Response): Promise<Response> {
         violations: {
           $sum: { $cond: [{ $eq: ['$complianceResult.status', 'VIOLATION_DETECTED'] }, 1, 0] },
         },
-        // Not `status === 'REVIEW_REQUIRED'`: filing a record changed that
-        // column and emptied the tile while the declarations on it were still
-        // unanswered.
-        pendingReviews: { $sum: { $cond: [isPendingReviewExpr(), 1, 0] } },
         finalized: { $sum: { $cond: [{ $eq: ['$status', 'FINALIZED'] }, 1, 0] } },
-        scoreSum: { $sum: { $ifNull: ['$complianceResult.score', 0] } },
-        scoreCount: {
-          $sum: { $cond: [{ $ifNull: ['$complianceResult.score', false] }, 1, 0] },
-        },
       },
     },
   ]);
@@ -666,12 +704,7 @@ export async function getStats(req: Request, res: Response): Promise<Response> {
     totalInspections: aggregate?.totalInspections ?? 0,
     compliant: aggregate?.compliant ?? 0,
     violations: aggregate?.violations ?? 0,
-    pendingReviews: aggregate?.pendingReviews ?? 0,
     finalized: aggregate?.finalized ?? 0,
-    averageScore:
-      aggregate && aggregate.scoreCount > 0
-        ? Math.round(aggregate.scoreSum / aggregate.scoreCount)
-        : 0,
   };
 
   return ok(res, stats);
@@ -690,16 +723,6 @@ export async function getReport(req: Request, res: Response): Promise<Response> 
     );
   }
 
-  const pending = inspection.extractedFields.filter((field) =>
-    needsReview({
-      name: field.name,
-      label: field.label,
-      aiValue: field.aiValue,
-      confidence: field.confidence,
-      required: field.required,
-      reviewAction: field.reviewAction,
-    }),
-  ).length;
 
   /**
    * A report is a *snapshot* shaped for presentation, not a second copy of the
@@ -721,7 +744,7 @@ export async function getReport(req: Request, res: Response): Promise<Response> 
     extractedFields: dto.extractedFields,
     aiAnalysis: dto.aiAnalysis,
     complianceResult: dto.complianceResult,
-    review: { ...dto.review, pendingFieldCount: pending },
+    review: dto.review,
     notes: [dto.notes, dto.finalNotes].filter(Boolean),
     status: dto.status,
     createdAt: dto.createdAt,

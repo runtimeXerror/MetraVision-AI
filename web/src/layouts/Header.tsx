@@ -9,7 +9,7 @@ import {
   Sun,
   UserRound,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { Avatar, Badge } from '@/components/ui/primitives';
@@ -85,12 +85,30 @@ export function Header() {
 function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useOutsideClose<HTMLDivElement>(() => setOpen(false));
+  const user = useUser();
 
-  const { data = [] } = useQuery({
+  const { data: live = [] } = useQuery({
     queryKey: ['notifications'],
     queryFn: notificationService.list,
     staleTime: 60_000,
   });
+
+  /**
+   * Held in state rather than read straight from storage on every render, so
+   * pressing Clear repaints immediately instead of waiting for the next query.
+   */
+  const [clearedAt, setClearedAt] = useState(0);
+  const data = useMemo(
+    () => (notificationService.isCleared(live) ? [] : live),
+    // `clearedAt` is not read here; it is the signal that storage changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [live, clearedAt],
+  );
+
+  // Only an administrator can clear the bell. A supervisor dismissing the
+  // department's outstanding work for everyone on that browser is not a
+  // decision the console should offer them.
+  const canClear = user?.role === 'ADMIN' && data.length > 0;
 
   return (
     <div className="relative" ref={ref}>
@@ -109,9 +127,23 @@ function NotificationBell() {
 
       {open ? (
         <div className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-1.5rem)] animate-fade-up overflow-hidden rounded-card border border-line bg-surface shadow-pop">
-          <div className="border-b border-line px-4 py-3">
-            <p className="text-sm font-semibold text-ink">Attention required</p>
-            <p className="mt-0.5 text-xs text-ink-muted">Derived from current inspection data</p>
+          <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">Attention required</p>
+              <p className="mt-0.5 text-xs text-ink-muted">From the last 24 hours</p>
+            </div>
+            {canClear ? (
+              <button
+                type="button"
+                onClick={() => {
+                  notificationService.clear(data);
+                  setClearedAt(Date.now());
+                }}
+                className="shrink-0 rounded-md px-2 py-1 text-2xs font-medium text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
+              >
+                Clear
+              </button>
+            ) : null}
           </div>
 
           {data.length === 0 ? (

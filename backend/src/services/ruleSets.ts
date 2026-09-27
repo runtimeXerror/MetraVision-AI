@@ -181,12 +181,6 @@ export function findRequirement(
 }
 
 /**
- * Confidence below this routes a field to human review. Server-side so the
- * threshold can be tuned per deployment without shipping a new mobile build.
- */
-export const REVIEW_CONFIDENCE_THRESHOLD = 0.75;
-
-/**
  * How grave a missing declaration is.
  *
  * Not every omission is equally serious, and treating them alike makes the

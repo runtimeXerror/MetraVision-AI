@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 
-import { notify } from '../components/Dialog';
+import { dialog, notify } from '../components/Dialog';
 
 import type { ExportOption } from '../components/ExportSheet';
 import { toApiError } from '../services/api';
 import {
+  openPdf,
   savePdfToDevice,
   sharePdf,
   type DocumentSource,
@@ -47,18 +48,44 @@ export function useDocumentExport(resolve: () => DocumentSource | null) {
     try {
       const outcome = await action(source);
 
+      /**
+       * ── A SAVE IS CONFIRMED, NOT FOLLOWED UP ───────────────────────────
+       *
+       * The confirmation used to offer `Open` beside `Done`, on the reasoning
+       * that an officer holding the packet would want to look at the report
+       * straight away. In the field it read as a second decision at the end of
+       * a flow that was already finished, and it pushed the officer out of the
+       * app into a PDF viewer they then had to come back from.
+       *
+       * So a completed save is now a plain acknowledgement. The file name and
+       * the folder are still named, which is what an officer needs to find it
+       * again; getting it open is the file manager's job, not this screen's.
+       *
+       * `app_only` below keeps its `Open`, because there the file exists and
+       * nothing on the device offers a folder or a share sheet to reach it —
+       * removing the action would strand the document.
+       */
       if (outcome.status === 'saved') {
         void notify({
-          title: 'Saved to device',
+          title: 'Report saved',
           message: `${outcome.fileName} was saved to ${outcome.folder}.`,
           tone: 'success',
         });
       } else if (outcome.status === 'app_only') {
-        void notify({
-          title: 'PDF ready',
-          message: `${outcome.fileName} was produced, but this device offers no way to save or share it.`,
+        // The case where opening it here is the *only* way to reach it: the
+        // file exists, and nothing on this device offers a folder or a sheet.
+        const open = await dialog<boolean>({
+          title: 'Report ready',
+          message: `${outcome.fileName} was produced, but this device offers no folder to save it to.`,
           tone: 'warning',
+          dismissValue: false,
+          actions: [
+            { label: 'Open', value: true, style: 'default' },
+            { label: 'Done', value: false, style: 'cancel' },
+          ],
         });
+
+        if (open === true) await openPdf(outcome.uri, outcome.fileName);
       }
       // A completed share needs no alert — the share sheet was its own
       // confirmation, and on Android an alert would land behind the chooser.

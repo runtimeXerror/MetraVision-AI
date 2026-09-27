@@ -15,7 +15,7 @@ import { PRODUCT_CATEGORIES, type ProductCategory } from '../../types';
 import { useImageStore } from '../../store/imageStore';
 import { useAnalysisStore } from '../../store/analysisStore';
 import { useInspectionStore } from '../../store/inspectionStore';
-import { formatDate, formatTime12 } from '../../utils/format';
+import { formatClock, formatDate } from '../../utils/format';
 import { hasErrors, required, validate } from '../../utils/validation';
 
 export const INSPECTION_STEPS = ['Details', 'Images', 'Quality', 'Analysis', 'Result'];
@@ -24,6 +24,40 @@ const CATEGORY_OPTIONS = PRODUCT_CATEGORIES.map((value) => ({
   value,
   label: productCategoryLabels[value],
 }));
+
+/**
+ * The running clock, to the second — and nothing else.
+ *
+ * Seconds were dropped from this stamp once because ticking them re-rendered
+ * the whole form once a second, under the officer's fingers while they typed
+ * into it. That cost is not inherent to showing seconds; it came from the
+ * timer sitting in the same component as the form. Here the state and the
+ * interval belong to a component whose entire output is one line of text, so
+ * the tick re-renders that line and nothing above or below it.
+ *
+ * `useFocusEffect`, not `useEffect`: the Inspect tab stays mounted behind
+ * History and Reports, and a timer left running there would fire once a second
+ * on a screen nobody is looking at, for as long as the app is open.
+ */
+function RunningClock() {
+  const [now, setNow] = useState(() => new Date());
+
+  useFocusEffect(
+    useCallback(() => {
+      setNow(new Date());
+      const id = setInterval(() => setNow(new Date()), 1_000);
+      return () => clearInterval(id);
+    }, []),
+  );
+
+  return (
+    // Monospaced, or the digits change width as they tick and the whole clock
+    // jitters sideways once a second.
+    <Txt variant="mono" style={[styles.clock, { marginTop: 3 }]}>
+      {formatClock(now)}
+    </Txt>
+  );
+}
 
 /**
  * Step 1 of the capture flow, and the root of the Inspect tab.
@@ -86,34 +120,29 @@ export function InspectionDetailsScreen() {
   };
 
   /**
-   * A clock that runs while the form is open.
+   * Today's date, while the form is open.
    *
-   * This is the current time, not the draft's `createdAt`. An inspector filling
+   * This is the current date, not the draft's `createdAt`. An inspector filling
    * this in is standing in the shop, and the inspection is happening now — a
-   * frozen stamp from the moment the tab was opened would be the time they
-   * started typing, which is not what anyone means by the time of inspection.
+   * frozen stamp from the moment the tab was opened would be the date they
+   * started typing, which on a shift that runs past midnight is the wrong day.
    * The recorded time is still the server's; this is the officer's own clock.
+   *
+   * A date cannot change faster than once a minute, so it is polled at that
+   * rate and no faster: every tick here re-renders the form under the officer's
+   * fingers. The seconds live in `RunningClock`, which re-renders one line.
    *
    * `useFocusEffect`, not `useEffect`: this screen is a tab root and stays
    * mounted behind History and Reports. Without it, a timer would go on firing
-   * a re-render every second on a screen nobody is looking at, for as long as
-   * the app is open.
+   * a re-render on a screen nobody is looking at, for as long as the app is
+   * open.
    */
   const [now, setNow] = useState(() => new Date());
 
-  /**
-   * Ticking minutes, not seconds.
-   *
-   * A seconds hand re-rendered this whole form once a second — under the
-   * officer's fingers, while they typed — to animate a figure that is not the
-   * recorded time and that nobody reads to the second. The stamp on the record
-   * is the server's. This is context, and context does not need a running
-   * clock; it needs to be right when they glance at it.
-   */
   useFocusEffect(
     useCallback(() => {
       setNow(new Date());
-      const id = setInterval(() => setNow(new Date()), 15_000);
+      const id = setInterval(() => setNow(new Date()), 60_000);
       return () => clearInterval(id);
     }, []),
   );
@@ -158,11 +187,7 @@ export function InspectionDetailsScreen() {
                 <Txt variant="overline" color={colors.textFaint}>
                   Time
                 </Txt>
-                {/* Monospaced, or the digits change width as they tick and the
-                    whole clock jitters sideways once a second. */}
-                <Txt variant="mono" style={[styles.clock, { marginTop: 3 }]}>
-                  {formatTime12(now)}
-                </Txt>
+                <RunningClock />
               </View>
             </Row>
           </Card>

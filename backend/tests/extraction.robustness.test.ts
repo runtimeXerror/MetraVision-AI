@@ -357,3 +357,61 @@ describe('a reading that is mostly noise', () => {
     expect(extraction.unclaimedLines.join(' ')).toContain('8901234567890');
   });
 });
+
+/* ── Two labels under one heading ─────────────────────────────────────────── */
+
+/**
+ * ── THE NEXT LABEL IS NOT THIS ONE'S VALUE ──────────────────────────────────
+ *
+ * Indian packs routinely put two declarations under a single heading:
+ *
+ *     BATCH NO. & MFG DATE: 80/23/000
+ *
+ * The batch matcher stops at `BATCH NO.` and what follows it is `& MFG DATE:`
+ * — the rest of the heading. That has two runs of letters in it, which was all
+ * the old guard asked for, so it was accepted; RPT-2026-00015 went out to a
+ * dealer recording their batch number as the string "& MFG DATE:".
+ *
+ * Worse than wrong on its own: accepting it stops the search, because the
+ * neighbour lookup only runs when the label's own line yielded nothing.
+ */
+describe('a heading that names two declarations', () => {
+  const COMBINED = ['BATCH NO. & MFG DATE: 80/23/000'];
+
+  it('never records the second label as the first label\'s value', () => {
+    const batch = valueOf(label([...NOISE, ...COMBINED]), 'batch_number');
+    if (batch !== undefined) {
+      expect(batch.toUpperCase()).not.toContain('MFG');
+      expect(batch.toUpperCase()).not.toContain('DATE');
+    }
+  });
+
+  it('does not record a bare label run as a manufacturing date', () => {
+    const mfg = valueOf(label([...NOISE, 'MFG DATE & BATCH NO.', '80/23/000']), 'manufacturing_date');
+    if (mfg !== undefined) {
+      expect(mfg.toUpperCase()).not.toContain('BATCH');
+    }
+  });
+
+  /**
+   * The value on the same line survives the strip.
+   *
+   * Rejecting the whole line would have been the easy fix and the wrong one:
+   * the code the dealer needs is printed right there after the second heading.
+   */
+  it('keeps the value printed after the second heading', () => {
+    const batch = valueOf(label([...NOISE, ...COMBINED]), 'batch_number');
+    expect(batch, 'the value on the line was thrown away').toBeDefined();
+    expect(batch).toContain('80/23/000');
+  });
+
+  /**
+   * The other half of the guard: a short scrap that is *not* label vocabulary
+   * is still a real reading, and must not be eaten along with the heading.
+   */
+  it('still accepts a short value that is not label vocabulary', () => {
+    const batch = valueOf(label([...NOISE, 'BATCH NO.: ALPHA']), 'batch_number');
+    expect(batch, 'a real short reading was rejected').toBeDefined();
+    expect(batch?.toUpperCase()).toContain('ALPHA');
+  });
+});

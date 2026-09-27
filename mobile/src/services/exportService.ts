@@ -39,7 +39,16 @@ export interface ExportResult {
 }
 
 export type SaveOutcome =
-  | { status: 'saved'; fileName: string; folder: string }
+  /**
+   * `uri` is the app's own copy, not the one in the chosen folder.
+   *
+   * Carried so the confirmation can offer to open the report there and then.
+   * The folder copy cannot be opened: on Android it lives behind a Storage
+   * Access Framework tree the app holds no read grant for, and its path is not
+   * something any viewer can be pointed at. The cache copy is byte-identical,
+   * still on disk, and openable — so it is what "Open" hands over.
+   */
+  | { status: 'saved'; fileName: string; folder: string; uri: string }
   | { status: 'shared'; fileName: string }
   /** The officer backed out of the folder picker or the share sheet. */
   | { status: 'cancelled' }
@@ -184,7 +193,52 @@ export async function savePdfToDevice(source: DocumentSource): Promise<SaveOutco
     );
   }
 
-  return { status: 'saved', fileName: rendered.fileName, folder: folderLabel(target) };
+  return {
+    status: 'saved',
+    fileName: rendered.fileName,
+    folder: folderLabel(target),
+    uri: rendered.uri,
+  };
+}
+
+/**
+ * ── OPENING WHAT WAS JUST SAVED ─────────────────────────────────────────────
+ *
+ * "Saved to Downloads" is a true statement and a dead end. It tells an officer
+ * standing in a shop that their report exists somewhere they are not, and
+ * leaves them to close the app, find a file manager, and go looking for a name
+ * they have already forgotten. The one moment they certainly want to look at
+ * the document is the moment it is finished.
+ *
+ * So the confirmation offers to open it, and this is what that runs.
+ *
+ * ── WHY THE SHARE SHEET AND NOT A VIEWER ───────────────────────────────────
+ *
+ * Because there is no viewer to call. Handing a `file://` path to `Linking` on
+ * Android raises `FileUriExposedException`; a true "open with" needs an
+ * `ACTION_VIEW` intent, which needs `expo-intent-launcher`, which is a
+ * dependency this app does not carry. The share sheet is what is installed,
+ * and every device that has a PDF reader lists it there — so the officer
+ * reaches the document in one tap from the confirmation rather than none, and
+ * without going near a folder.
+ *
+ * Failures are swallowed. This runs from a dialog the officer has already been
+ * told succeeded, and reporting "could not open" over the top of "saved"
+ * would suggest the save itself had failed.
+ */
+export async function openPdf(uri: string, fileName: string): Promise<void> {
+  if (!(await Sharing.isAvailableAsync())) return;
+
+  try {
+    await Sharing.shareAsync(uri, {
+      mimeType: 'application/pdf',
+      UTI: 'com.adobe.pdf',
+      dialogTitle: `Open ${fileName}`,
+    });
+  } catch {
+    // Dismissed, or nothing on the device handles a PDF. Neither is an error
+    // worth putting in front of somebody who has their report already.
+  }
 }
 
 /**

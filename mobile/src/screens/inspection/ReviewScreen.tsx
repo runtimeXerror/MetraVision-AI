@@ -3,7 +3,7 @@ import { useNavigation } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 
-import { ConfidencePill, EvidenceView, ImageThumb } from '../../components/domain';
+import { EvidenceView, ImageThumb } from '../../components/domain';
 import { ImageViewer } from '../../components/ImageViewer';
 import { Input } from '../../components/forms';
 import { ActionBar, Body, Notice, Screen, ScreenHeader } from '../../components/layout';
@@ -225,15 +225,9 @@ export function ReviewScreen() {
             exactly which words on which photograph are in doubt.
           */}
           <Card>
-            <Row justify="space-between" align="center" gap={spacing.sm}>
-              <Row gap={spacing.sm} style={{ flex: 1 }}>
-                <Txt variant="overline" color={colors.textFaint}>
-                  {current.label}
-                </Txt>
-                {current.required ? <Badge label="Required" tone="neutral" size="sm" /> : null}
-              </Row>
-              {!missing ? <ConfidencePill confidence={current.confidence} /> : null}
-            </Row>
+            <Txt variant="overline" color={colors.textFaint}>
+              {current.label}
+            </Txt>
 
             <View style={[styles.reading, missing && styles.readingMissing]}>
               <Txt variant="overline" color={colors.textFaint}>

@@ -123,15 +123,111 @@ const schema = z.object({
   MOCK_OCR_DELAY_MS: z.coerce.number().nonnegative().default(600),
 
   /**
-   * How completely one, two, three or four-plus photographs are taken to have
-   * captured a package, as a 0–1 score fed to the rule engine.
+   * ── LLM SWITCH ──────────────────────────────────────────────────────────
+   * `none`   → no model runs. The default, and what CI runs. The scan behaves
+   *            exactly as it did before the stage existed.
+   * `gemini` → Google AI Studio, for OCR error correction and structured
+   *            output. Chosen because the labels are bilingual and correcting
+   *            Devanagari needs a model that has seen it.
    *
-   * This is an evidentiary policy and not law, which is why it is
-   * configuration. It matters because the engine will not record a missing
-   * declaration as a violation unless the package was captured well enough for
-   * its absence to mean something — a single photograph of the front face
-   * cannot establish that there is no MRP on the back. See §16 of the brief
-   * and `DecisionEngine.absenceStrength`.
+   * The model never decides anything about the law, and by default it does not
+   * reach the rule engine at all — see `services/llm/applySuggestions.ts`.
+   * ────────────────────────────────────────────────────────────────────────
+   */
+  LLM_PROVIDER: z.enum(['none', 'gemini']).default('none'),
+
+  /**
+   * ── THE CHAIN ───────────────────────────────────────────────────────────
+   *
+   * Models to try in order, `provider` or `provider:model`, comma separated.
+   * The first one that answers wins; a spent quota, an outage or a timeout
+   * falls through to the next. See `FallbackLLMProvider`.
+   *
+   *   LLM_CHAIN=gemini:gemini-3.5-flash-lite,gemini:gemini-3.7-flash,groq
+   *
+   * It exists because one vendor's free tier is not a foundation. Gemini's
+   * flash models allow twenty requests a *day*; an inspector on a shift can
+   * spend that before lunch, and every scan afterwards ran with the stage
+   * skipped and nothing on the report to say so.
+   *
+   * Gemini leads because the labels are bilingual and it has actually read
+   * Devanagari. Groq follows because its allowance is measured in thousands
+   * rather than tens, so the stage keeps working after Google stops answering.
+   *
+   * Empty falls back to `LLM_PROVIDER`, so an existing deployment is unchanged
+   * until it opts in.
+   */
+  LLM_CHAIN: z.string().default(''),
+
+  /**
+   * A Groq Cloud key — https://console.groq.com/keys
+   *
+   * NEVER commit a value, and never ship one to the mobile or web client.
+   */
+  GROQ_API_KEY: z.string().optional(),
+
+  /**
+   * The Groq model that answers.
+   *
+   * Llama 3.3 70B: large enough to repair OCR damage and hold a JSON shape,
+   * and deliberately not a reasoning model — this task wants a transcription,
+   * not a deliberation, and a model that thinks about it is slower and no more
+   * accurate at reading `5OO g`.
+   */
+  GROQ_MODEL: z.string().default('llama-3.3-70b-versatile'),
+
+  /**
+   * A Google AI Studio key — https://aistudio.google.com/apikey
+   *
+   * NOT the same credential as `OCR_API_KEY`. That one is a Google *Cloud*
+   * key for the Vision API and is billed; this is an AI Studio key with its
+   * own free tier. A Cloud key sent here returns 403.
+   *
+   * NEVER commit a value, and never ship one to the mobile or web client.
+   */
+  GEMINI_API_KEY: z.string().optional(),
+
+  /**
+   * The model that answers.
+   *
+   * Configurable rather than pinned in code because Google retires and renames
+   * these on its own schedule — `gemini-2.5-flash` already answers 404 for a
+   * new key, naming its successor in the error — and a stale identifier in a
+   * compiled constant is a scan that fails on demo day for a reason nobody can
+   * see.
+   *
+   * The default was chosen by measurement, not by version number. Against this
+   * project's own noisy OCR text, `gemini-3.7-flash` repairs `5OO mI`,
+   * `1S8.OO`, `1O123O45OOO789` and `lndia` in ~3.4s. `gemini-3.6-flash` is
+   * just as accurate at 7.3s; `gemini-3.5-flash-lite` returns every error
+   * uncorrected, which is the whole job; `gemini-3.8-flash` was 503 on every
+   * attempt. Re-measure before changing it — a newer number is not evidence.
+   */
+  GEMINI_MODEL: z.string().default('gemini-3.7-flash'),
+
+  /**
+   * Ceiling on the model call.
+   *
+   * Set against what the models actually take: 3.4s for the default and 7.3s
+   * for its nearest alternative, so 8s cut off a working answer and this is
+   * that measurement with room for a slow one.
+   *
+   * It is a ceiling, not a cost — the ordinary call still returns in three
+   * seconds. What bounds the wait in the bad case is that the stage is
+   * optional: the extractor has already produced its fields, so the call is
+   * abandoned and the scan completes without it rather than the inspector
+   * waiting out the timeout for nothing.
+   */
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+
+  /**
+   * How completely one, two, three or four-plus photographs are taken to have
+   * captured a package, as a 0–1 score.
+   *
+   * Printed on the report so a reader knows how much of the package was
+   * photographed. No check turns on it: a declaration the reading did not
+   * find is recorded as not declared whatever the count, and the inspector
+   * who finalizes the record settles it against the package.
    */
   CAPTURE_COMPLETENESS_BY_IMAGE_COUNT: z.string().default('0.45,0.7,0.85,0.95'),
 

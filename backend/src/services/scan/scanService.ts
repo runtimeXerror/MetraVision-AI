@@ -5,6 +5,7 @@ import type { ComplianceResult } from '../../compliance/types/ComplianceResult';
 import { logger } from '../../config/logger';
 import { ApiError } from '../../utils/ApiError';
 import { extractInformation, type ExtractionResult } from '../extraction';
+import { adoptReading, llmEnabled, llmProvider } from '../llm';
 import {
   aggregate,
   ocrProvider,
@@ -23,7 +24,8 @@ import { buildReport, type ComplianceReport } from './reportGenerator';
  *   image bytes
  *       ↓  OCRProvider                    (swappable; knows nothing of the law)
  *   raw text + located regions
- *       ↓  InformationExtractionService   (deterministic; knows nothing of the law)
+ *       ↓  InformationExtractionService   (deterministic; the fallback reading)
+ *       ↓  LLMProvider + adoptReading     (the reading of record, when a model answers)
  *   structured fields + evidence
  *       ↓  ComplianceInputAdapter         (translates; decides nothing)
  *   ComplianceEvaluationRequest
@@ -46,9 +48,8 @@ import { buildReport, type ComplianceReport } from './reportGenerator';
  * A read that produces *something* is a different case and is not stopped. One
  * unreadable photograph out of seven is not grounds to throw away the six that
  * read, so those faces are evaluated and the ones that failed are carried on
- * `ocr.unread` — which lowers the capture completeness the engine is given, so
- * a declaration missing from the faces that were read is routed to review
- * rather than recorded as absent.
+ * `ocr.unread` and printed on the report, so the inspector knows which faces
+ * the declarations were read from before confirming a missing one.
  * ────────────────────────────────────────────────────────────────────────────
  */
 
@@ -85,7 +86,14 @@ export interface ScanOutcome {
   captureCompleteness: number;
   contextApplied: Array<{ key: string; value: string | number | boolean; basis: string }>;
   contextOverridden: Array<{ key: string; value: string | number | boolean; basis: string }>;
-  timings: { ocrMs: number; extractionMs: number; ruleEngineMs: number; totalMs: number };
+  timings: {
+    ocrMs: number;
+    extractionMs: number;
+    /** Absent when no model was asked — which is not the same as one taking 0 ms. */
+    llmMs?: number;
+    ruleEngineMs: number;
+    totalMs: number;
+  };
 }
 
 function reportId(): string {
@@ -128,8 +136,8 @@ export const OCR_BUDGET_MS = 105_000;
  *
  * What must not happen is the opposite mistake: quietly evaluating a package
  * on fewer faces than were submitted, as though the missing ones had been read
- * and found blank. Hence `unread`, which travels with the result, lowers the
- * capture completeness the rule engine is given, and is printed in the report.
+ * and found blank. Hence `unread`, which travels with the result and is
+ * printed in the report.
  */
 async function readImages(
   provider: OCRProvider,
@@ -252,7 +260,34 @@ export async function runScan(input: RunScanInput): Promise<ScanOutcome> {
 
   /* ── Stage 2: extract ─────────────────────────────────────────────────── */
 
-  const extraction = extractInformation(ocr);
+  let extraction = extractInformation(ocr);
+
+  /* ── Stage 2a: the reading of record, from a model ────────────────────── */
+
+  /**
+   * The model reads the whole OCR text and returns every declaration it
+   * finds, with the camera's damage repaired. Where it answers, its reading
+   * replaces the pattern extractor's field for field — see
+   * `services/llm/adoptReading.ts` for why all of them and not just the gaps,
+   * and for how each value is tied back to the OCR line it came from.
+   *
+   * It is still allowed to fail. `LLMProvider.read` returns no suggestions
+   * instead of throwing on a timeout, an outage or a spent quota, and the
+   * scan then proceeds on the extractor's reading with a note saying so.
+   *
+   * What the stage does *not* do is decide. It says what is printed; the
+   * rule engine says what that means.
+   */
+  let llmMs: number | undefined;
+  if (llmEnabled()) {
+    const reading = await llmProvider.read({
+      text: ocr.rawText,
+      category: input.productContext.category,
+      inspectionId: input.inspectionId,
+    });
+    extraction = adoptReading(extraction, reading, ocr);
+    llmMs = reading.processingTimeMs;
+  }
 
   /* ── Stage 3: adapt to the engine's contract ──────────────────────────── */
 
@@ -298,6 +333,7 @@ export async function runScan(input: RunScanInput): Promise<ScanOutcome> {
   const timings = {
     ocrMs,
     extractionMs: extraction.processingTimeMs,
+    llmMs,
     ruleEngineMs,
     totalMs: Date.now() - startedAt,
   };
@@ -331,6 +367,8 @@ export async function runScan(input: RunScanInput): Promise<ScanOutcome> {
       ocrProviderVersion: ocr.providerVersion,
       images: input.images.length,
       lines: ocr.regions.length,
+      llmModel: extraction.llm?.model,
+      llmSuggestions: extraction.llm?.suggestions.length,
       decision: compliance.status,
       ruleSetVersion: compliance.ruleSetVersion,
       issues: issues.length,

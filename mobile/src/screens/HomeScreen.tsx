@@ -190,25 +190,23 @@ export function HomeScreen() {
 
         {loading && items.length === 0 ? (
           <>
-            <StatTileRowSkeleton />
+            <StatTileRowSkeleton wide />
             <StatTileRowSkeleton style={{ marginTop: spacing.md }} />
           </>
         ) : (
           <>
+            {/* The total on its own row, the split beneath it. A "Pending
+                Reviews" tile used to sit beside the total; it was removed, so
+                the three that remain are laid out as one figure and its two
+                parts rather than as a grid with a hole in it. */}
             <Row gap={spacing.md} align="stretch">
               <StatTile
+                wide
                 label="Total Inspections"
                 value={stats.totalInspections}
                 icon="clipboard-outline"
                 tone="info"
                 onPress={() => openHistory('all')}
-              />
-              <StatTile
-                label="Pending Reviews"
-                value={stats.pendingReviews}
-                icon="hourglass-outline"
-                tone="warning"
-                onPress={() => openHistory('review_required')}
               />
             </Row>
 

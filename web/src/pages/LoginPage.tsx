@@ -63,7 +63,7 @@ export function LoginPage() {
             <ScanLine className="h-6 w-6" strokeWidth={2.25} aria-hidden />
           </span>
           <div>
-            <p className="text-sm font-semibold text-rail-ink">LM Compliance Console</p>
+            <p className="text-sm font-semibold text-rail-ink">MetraVision AI</p>
             <p className="text-xs text-rail-muted">Department of Legal Metrology</p>
           </div>
         </div>
@@ -106,7 +106,7 @@ export function LoginPage() {
               <ScanLine className="h-5 w-5" strokeWidth={2.25} aria-hidden />
             </span>
             <div>
-              <p className="text-sm font-semibold text-ink">LM Compliance Console</p>
+              <p className="text-sm font-semibold text-ink">MetraVision AI</p>
               <p className="text-xs text-ink-muted">Department of Legal Metrology</p>
             </div>
           </div>

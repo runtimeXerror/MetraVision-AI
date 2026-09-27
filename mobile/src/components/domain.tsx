@@ -14,6 +14,7 @@ import {
   complianceStatusLabels,
   complianceStatusTones,
   imageSideLabels,
+  inspectionStatusLabels,
   qualityRatingLabels,
   qualityRatingTones,
   severityLabels,
@@ -34,7 +35,6 @@ import type {
   Violation,
 } from '../types';
 import {
-  formatConfidence,
   formatDate,
   formatRelative,
   initials,
@@ -135,6 +135,7 @@ export function StatTile({
   value,
   icon,
   tone = 'neutral',
+  wide = false,
   onPress,
   style,
 }: {
@@ -142,12 +143,31 @@ export function StatTile({
   value: number | string;
   icon: keyof typeof Ionicons.glyphMap;
   tone?: Tone;
+  /**
+   * Laid out across a whole row rather than as one cell of a pair: the icon,
+   * the label and then the figure, right-aligned and larger. A stacked tile
+   * stretched to full width put a 30px number in the left corner and left
+   * two-thirds of the card empty.
+   */
+  wide?: boolean;
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
   const palette = toneColors[tone];
 
-  const content = (
+  const content = wide ? (
+    <Row gap={spacing.md} align="center">
+      <View style={[styles.statIconWide, { backgroundColor: palette.bg }]}>
+        <Ionicons name={icon} size={22} color={palette.fg} />
+      </View>
+      <Txt variant="heading" style={{ flex: 1 }} numberOfLines={2}>
+        {label}
+      </Txt>
+      <Txt style={styles.statValueWide} numberOfLines={1}>
+        {value}
+      </Txt>
+    </Row>
+  ) : (
     <>
       <View style={[styles.statIcon, { backgroundColor: palette.bg }]}>
         <Ionicons name={icon} size={17} color={palette.fg} />
@@ -161,8 +181,10 @@ export function StatTile({
     </>
   );
 
+  const tileStyle = wide ? styles.statTileWide : styles.statTile;
+
   if (!onPress) {
-    return <Card style={[styles.statTile, style]}>{content}</Card>;
+    return <Card style={[tileStyle, style]}>{content}</Card>;
   }
 
   // The Pressable is what the surrounding Row lays out, so it — not the Card
@@ -175,19 +197,38 @@ export function StatTile({
       accessibilityLabel={`${label}: ${value}`}
       style={({ pressed }) => [styles.statTileTouch, pressed && { opacity: 0.85 }, style]}
     >
-      <Card style={styles.statTile}>{content}</Card>
+      <Card style={tileStyle}>{content}</Card>
     </Pressable>
   );
 }
 
 /**
- * A row of two tile-shaped placeholders.
+ * A row of tile-shaped placeholders — a pair by default, or one wide tile.
  *
  * Lives beside `StatTile` so the loading state cannot drift from the grid it
  * resolves into — a placeholder of a different shape makes the page jump the
  * moment the figures land.
  */
-export function StatTileRowSkeleton({ style }: { style?: StyleProp<ViewStyle> }) {
+export function StatTileRowSkeleton({
+  wide = false,
+  style,
+}: {
+  wide?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  if (wide) {
+    return (
+      <Card style={[styles.statTileWide, style]}>
+        <Row gap={spacing.md} align="center">
+          <Skeleton height={44} width={44} style={{ borderRadius: 22 }} />
+          <Skeleton height={16} width="40%" />
+          <View style={{ flex: 1 }} />
+          <Skeleton height={34} width={72} />
+        </Row>
+      </Card>
+    );
+  }
+
   return (
     <Row gap={spacing.md} align="stretch" style={style}>
       {[0, 1].map((key) => (
@@ -243,7 +284,11 @@ export function InspectionCard({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Inspection ${inspection.referenceId}, ${inspection.businessName}, ${complianceStatusLabels[inspection.complianceStatus]}`}
+      accessibilityLabel={`Inspection ${inspection.referenceId}, ${inspection.businessName}, ${
+        inspection.complianceStatus
+          ? complianceStatusLabels[inspection.complianceStatus]
+          : inspectionStatusLabels[inspection.status]
+      }`}
       style={({ pressed }) => pressed && { opacity: 0.9, transform: [{ scale: 0.995 }] }}
     >
       <Card style={{ marginBottom: spacing.md }}>
@@ -271,7 +316,11 @@ export function InspectionCard({
           wrap
           gap={spacing.sm}
         >
-          <ComplianceBadge status={inspection.complianceStatus} size="sm" />
+          {inspection.complianceStatus ? (
+            <ComplianceBadge status={inspection.complianceStatus} size="sm" />
+          ) : (
+            <Badge label={inspectionStatusLabels[inspection.status]} tone="neutral" size="sm" />
+          )}
 
           <Row gap={spacing.md} align="center">
             {inspection.violationCount > 0 ? (
@@ -390,7 +439,20 @@ export function ImageThumb({
  * The bar is the same two figures as widths, because "4 of 6" is a fact and the
  * width of the red band is what the eye actually reads.
  */
-export function ComplianceTally({ analysis }: { analysis: AIAnalysis }) {
+export function ComplianceTally({
+  analysis,
+  scan,
+}: {
+  analysis: AIAnalysis;
+  /**
+   * The engine's own record, where it is on the inspection.
+   *
+   * Only one number is read from it, and only because the projection cannot
+   * carry it: how many checks are waiting on a measurement rather than on a
+   * person. See below.
+   */
+  scan?: ScanRecord;
+}) {
   const fields = analysis.fields;
   const checks = analysis.compliance.checks;
 
@@ -404,22 +466,25 @@ export function ComplianceTally({ analysis }: { analysis: AIAnalysis }) {
 
   const passed = checks.filter((check) => check.result === 'pass').length;
   const failed = checks.filter((check) => check.result === 'fail').length;
-  const review = checks.filter((check) => check.result === 'warning').length;
   const notApplicable = checks.filter((check) => check.result === 'not_applicable').length;
 
-  const decided = passed + failed + review;
+  /**
+   * Rules 7(2) and 7(3) ask for the height of the printed type in millimetres,
+   * which no photograph can supply. The engine leaves them out of the verdict
+   * — a constant tells you about the roadmap, not about the package — and the
+   * tally says so in a sentence rather than counting them against it.
+   */
+  const pendingMeasurement = scan?.summary.pendingCapability ?? 0;
+
+  const decided = passed + failed;
   return (
     <Card style={{ marginTop: spacing.md }}>
       <ScoreRow label="Compliant" count={passed} total={decided} tone="success" />
       <ScoreRow label="Not compliant" count={failed} total={decided} tone="danger" />
-      {review > 0 ? (
-        <ScoreRow label="Needs review" count={review} total={decided} tone="warning" />
-      ) : null}
 
       {decided > 0 ? (
         <View style={styles.tallyBar}>
           {passed > 0 ? <View style={{ flex: passed, backgroundColor: colors.success }} /> : null}
-          {review > 0 ? <View style={{ flex: review, backgroundColor: colors.warning }} /> : null}
           {failed > 0 ? <View style={{ flex: failed, backgroundColor: colors.danger }} /> : null}
         </View>
       ) : null}
@@ -428,6 +493,16 @@ export function ComplianceTally({ analysis }: { analysis: AIAnalysis }) {
         {read} of {fields.length} declarations read
         {notApplicable > 0 ? ` · ${notApplicable} rules did not apply to this product` : ''}
       </Txt>
+
+      {/* Said, not counted. It is a standing limitation of this version rather
+          than anything outstanding on this package, and an officer who reads it
+          as a job will go looking for work that is not there. */}
+      {pendingMeasurement > 0 ? (
+        <Txt variant="caption" color={colors.textFaint} style={{ marginTop: 2 }}>
+          {pendingMeasurement} {pendingMeasurement === 1 ? 'rule needs' : 'rules need'} the printed
+          type measured on the packet with a rule — a photograph cannot give millimetres.
+        </Txt>
+      ) : null}
 
       {/* Kept out of the percentages above, and said rather than dropped. A
           score that counted rules the package was never subject to would be a
@@ -451,7 +526,7 @@ function ScoreRow({
   label: string;
   count: number;
   total: number;
-  tone: 'success' | 'danger' | 'warning';
+  tone: 'success' | 'danger';
 }) {
   const share = total === 0 ? 0 : Math.round((count / total) * 100);
 
@@ -517,11 +592,6 @@ export function QualityReport({ quality }: { quality: ImageQuality }) {
 
 /* ── Extracted fields ─────────────────────────────────────────────────────── */
 
-export function ConfidencePill({ confidence }: { confidence: number }) {
-  const tone: Tone = confidence >= 0.9 ? 'success' : confidence >= 0.75 ? 'info' : 'warning';
-  return <Badge label={formatConfidence(confidence)} tone={tone} size="sm" icon="analytics-outline" />;
-}
-
 /**
  * A single extracted declaration.
  *
@@ -530,13 +600,9 @@ export function ConfidencePill({ confidence }: { confidence: number }) {
  */
 export function ExtractedFieldCard({
   field,
-  onViewEvidence,
-  onReview,
   style,
 }: {
   field: ExtractedField;
-  onViewEvidence?: () => void;
-  onReview?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
   const corrected = field.reviewAction !== undefined;
@@ -562,13 +628,12 @@ export function ExtractedFieldCard({
           <Txt variant="body" color={colors.textMuted}>
             {field.label}
           </Txt>
-          {field.required ? (
-            <Txt variant="caption" color={colors.textFaint} style={{ marginTop: 1 }}>
-              Mandatory
-            </Txt>
-          ) : null}
         </View>
 
+        {/* The value alone. A read-confidence pill sat under it and a
+            "Mandatory" caption under the label; both were dropped. The
+            percentage qualified the camera, not the declaration, and read as
+            a score against the packet. */}
         <View style={{ flex: 1.1, alignItems: 'flex-end' }}>
           <Txt
             variant="bodyStrong"
@@ -577,11 +642,6 @@ export function ExtractedFieldCard({
           >
             {missing ? 'Not declared' : displayValue}
           </Txt>
-          {field.aiValue !== null ? (
-            <View style={{ marginTop: 4 }}>
-              <ConfidencePill confidence={field.confidence} />
-            </View>
-          ) : null}
         </View>
       </Row>
 
@@ -610,49 +670,10 @@ export function ExtractedFieldCard({
         </View>
       ) : null}
 
-      {/*
-        The confidence bar that used to sit here is gone. It said the same
-        thing as the pill in the corner, in the same card, twice — and across
-        twenty declarations that is twenty bars of chart doing no work, which
-        is most of what made this list read as clutter.
-
-        What replaced it matters more. `View evidence` opens the crop of the
-        photograph this value was read from, with the detection box on it, and
-        it is the only way an inspector can check a reading before it becomes a
-        finding: a batch number read as ":" or a brand read as "anacur: Beirhi
-        Co." is obvious in one glance at the pixels and invisible in a list. So
-        it is a bordered target now rather than a faint blue link.
-      */}
-      {onViewEvidence || onReview ? (
-        <Row gap={spacing.sm} style={{ marginTop: spacing.md }}>
-          {onViewEvidence && field.boundingBox ? (
-            <Pressable
-              onPress={onViewEvidence}
-              accessibilityRole="button"
-              accessibilityLabel={`View evidence for ${field.label}`}
-              style={({ pressed }) => [styles.fieldAction, pressed && { backgroundColor: colors.accentSoft }]}
-            >
-              <Ionicons name="scan-outline" size={15} color={colors.accent} />
-              <Txt variant="label" color={colors.accent}>
-                View evidence
-              </Txt>
-            </Pressable>
-          ) : null}
-
-          {onReview ? (
-            <Pressable
-              onPress={onReview}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.fieldAction, pressed && { backgroundColor: colors.accentSoft }]}
-            >
-              <Ionicons name="create-outline" size={15} color={colors.accent} />
-              <Txt variant="label" color={colors.accent}>
-                {corrected ? 'Change' : 'Review'}
-              </Txt>
-            </Pressable>
-          ) : null}
-        </Row>
-      ) : null}
+      {/* No action row. "View evidence" and "Review" used to sit here on every
+          card; the declarations list is now a record of what was read, and
+          correcting a reading is one step — the Review button at the foot of
+          the result screen. */}
     </Card>
   );
 }
@@ -732,13 +753,7 @@ export function EvidenceView({
                 height: `${box.height * 100}%`,
               },
             ]}
-          >
-            <View style={styles.evidenceTag}>
-              <Txt variant="caption" color={colors.textInverse}>
-                {formatConfidence(field.confidence)}
-              </Txt>
-            </View>
-          </View>
+          />
         ) : null}
 
         {/* The affordance, on the image rather than as a line of text under it.
@@ -955,9 +970,7 @@ export function CheckRow({
       ? 'checkmark-circle'
       : result === 'fail'
         ? 'close-circle'
-        : result === 'warning'
-          ? 'alert-circle'
-          : 'remove-circle-outline';
+        : 'remove-circle-outline';
 
   return (
     <Row align="flex-start" gap={spacing.md} style={{ paddingVertical: spacing.md }}>
@@ -1057,17 +1070,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: colors.neutralSoft,
   },
-  fieldAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 38,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.accentSoft,
-    backgroundColor: colors.surfaceAlt,
-  },
   verdict: {
     alignItems: 'center',
     padding: spacing.lg,
@@ -1097,6 +1099,29 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  statTileWide: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: spacing.base,
+    paddingHorizontal: spacing.base,
+  },
+  statIconWide: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Larger than `display`: this figure has a whole row to itself and is the
+  // one an officer reads out first.
+  statValueWide: {
+    fontSize: 40,
+    lineHeight: 46,
+    fontWeight: '800',
+    letterSpacing: -0.8,
+    color: colors.text,
+    textAlign: 'right',
   },
   thumb: {
     borderRadius: radius.md,
@@ -1147,15 +1172,6 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
     borderRadius: 3,
     backgroundColor: 'rgba(29, 111, 224, 0.14)',
-  },
-  evidenceTag: {
-    position: 'absolute',
-    top: -19,
-    left: -2,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
-    backgroundColor: colors.accent,
   },
   ruleRef: {
     alignSelf: 'flex-start',

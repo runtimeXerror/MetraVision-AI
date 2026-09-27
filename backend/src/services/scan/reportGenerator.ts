@@ -37,7 +37,28 @@ export interface ReportInput {
   inspectionDate: string;
   inspector?: { id: string; name: string; inspectorId: string };
   business?: { name: string; ownerName?: string; contact?: string };
-  location?: { address: string; district?: string; state?: string };
+  /**
+   * The whole recorded location, not a summary of it.
+   *
+   * This carried only address, district and state, and the caller narrowed the
+   * inspection's location to those three fields to match. The PIN and the GPS
+   * fix were dropped on the way into the report — so a record whose pincode
+   * and coordinates were sitting in the database printed "PIN code —" and a
+   * blank fix, and the document said the department knew less about where the
+   * inspection happened than it actually did.
+   *
+   * A report is evidence of which premises were inspected. Everything the
+   * record holds about that travels with it.
+   */
+  location?: {
+    address: string;
+    district?: string;
+    state?: string;
+    pincode?: string;
+    latitude?: number;
+    longitude?: number;
+    accuracyM?: number;
+  };
   images: Array<{ imageId: string; url: string; type: string; mimeType: string; sizeBytes: number }>;
   ocr: AggregateOCRResult;
   extraction: ExtractionResult;
@@ -49,6 +70,8 @@ export interface ReportInput {
   timings: {
     ocrMs: number;
     extractionMs: number;
+    /** Absent when no model was asked — which is not the same as one taking 0 ms. */
+    llmMs?: number;
     ruleEngineMs: number;
     totalMs: number;
   };
@@ -114,9 +137,7 @@ export interface ComplianceReport {
   checks: {
     passed: ComplianceCheck[];
     failed: ComplianceCheck[];
-    reviewRequired: ComplianceCheck[];
     notApplicable: ComplianceCheck[];
-    insufficientEvidence: ComplianceCheck[];
   };
 
   issues: ComplianceIssue[];
@@ -146,7 +167,6 @@ export interface ComplianceReport {
     ocrProviderVersion?: string;
     extractionEngine: string;
     extractionEngineVersion: string;
-    thresholds: ComplianceResult['thresholds'];
     captureCompleteness: number;
     contextApplied: ReportInput['contextApplied'];
     timings: ReportInput['timings'];
@@ -168,10 +188,6 @@ function headlineFor(result: ComplianceResult): string {
   switch (result.status) {
     case 'VIOLATION_DETECTED':
       return 'POTENTIAL NON-COMPLIANCE DETECTED';
-    case 'REVIEW_REQUIRED':
-      return 'INSPECTOR REVIEW REQUIRED';
-    case 'INSUFFICIENT_EVIDENCE':
-      return 'INSUFFICIENT EVIDENCE TO COMPLETE THE CHECKS';
     case 'NOT_APPLICABLE':
       return 'NO IMPLEMENTED RULE APPLIED TO THIS PACKAGE';
     case 'COMPLIANT':
@@ -198,14 +214,6 @@ function limitationsFor(input: ReportInput): string[] {
       `${input.compliance.summary.pendingCapability} check${
         input.compliance.summary.pendingCapability === 1 ? '' : 's'
       } could not be assessed because they need a physical measurement — letter height, panel placement or legibility — that this version does not take from an image.`,
-    );
-  }
-
-  if (input.captureCompleteness < input.compliance.thresholds.minimumCaptureCompleteness) {
-    limitations.push(
-      `Only part of the package was captured (${Math.round(input.captureCompleteness * 100)}%, below the ${Math.round(
-        input.compliance.thresholds.minimumCaptureCompleteness * 100,
-      )}% needed). A declaration that was not found has therefore been recorded for review rather than as a missing declaration.`,
     );
   }
 
@@ -335,9 +343,7 @@ export function buildReport(input: ReportInput): ComplianceReport {
     checks: {
       passed: byStatus('COMPLIANT'),
       failed: byStatus('VIOLATION_DETECTED'),
-      reviewRequired: byStatus('REVIEW_REQUIRED'),
       notApplicable: byStatus('NOT_APPLICABLE'),
-      insufficientEvidence: byStatus('INSUFFICIENT_EVIDENCE'),
     },
 
     issues: input.issues,
@@ -358,7 +364,6 @@ export function buildReport(input: ReportInput): ComplianceReport {
       ocrProviderVersion: ocr.providerVersion,
       extractionEngine: extraction.engine,
       extractionEngineVersion: extraction.engineVersion,
-      thresholds: compliance.thresholds,
       captureCompleteness: input.captureCompleteness,
       contextApplied: input.contextApplied,
       timings: input.timings,
@@ -384,8 +389,6 @@ function escapeHtml(value: unknown): string {
 const STATUS_TONE: Record<string, string> = {
   COMPLIANT: 'ok',
   VIOLATION_DETECTED: 'bad',
-  REVIEW_REQUIRED: 'warn',
-  INSUFFICIENT_EVIDENCE: 'warn',
   NOT_APPLICABLE: 'muted',
 };
 
@@ -508,9 +511,7 @@ export function renderReportHtml(report: ComplianceReport): string {
     <div class="count"><b>${report.overall.summary.totalChecks}</b><span class="muted">Checks performed</span></div>
     <div class="count"><b>${report.overall.summary.compliant}</b><span class="muted">Passed</span></div>
     <div class="count"><b>${report.overall.summary.violations}</b><span class="muted">Potential violations</span></div>
-    <div class="count"><b>${report.overall.summary.reviewRequired}</b><span class="muted">Review required</span></div>
-    <div class="count"><b>${report.overall.summary.notApplicable}</b><span class="muted">Not applicable</span></div>
-    <div class="count"><b>${report.overall.summary.pendingCapability}</b><span class="muted">Not assessable yet</span></div>
+    <div class="count"><b>${report.extractedFields.filter((field) => field.value !== null).length}</b><span class="muted">Declarations read</span></div>
   </div>
 
   <h2>Inspection</h2>
@@ -554,9 +555,7 @@ export function renderReportHtml(report: ComplianceReport): string {
   <h2>Every check performed</h2>
   <table>
     <thead><tr><th>Provision</th><th>Declaration</th><th>Result</th><th>Reason</th></tr></thead>
-    <tbody>${checkRows(report.checks.failed)}${checkRows(report.checks.reviewRequired)}${checkRows(
-      report.checks.insufficientEvidence,
-    )}${checkRows(report.checks.passed)}${checkRows(report.checks.notApplicable)}</tbody>
+    <tbody>${checkRows(report.checks.failed)}${checkRows(report.checks.passed)}${checkRows(report.checks.notApplicable)}</tbody>
   </table>
 
   <h2>Sources relied on</h2>
@@ -577,7 +576,11 @@ export function renderReportHtml(report: ComplianceReport): string {
     <tr><th>Rule engine</th><td>${escapeHtml(report.provenance.engineVersion)}</td></tr>
     <tr><th>OCR</th><td>${escapeHtml(report.provenance.ocrProvider)} ${escapeHtml(report.provenance.ocrProviderVersion ?? '')}</td></tr>
     <tr><th>Extraction</th><td>${escapeHtml(report.provenance.extractionEngine)} ${escapeHtml(report.provenance.extractionEngineVersion)}</td></tr>
-    <tr><th>Processing</th><td>OCR ${report.provenance.timings.ocrMs} ms · extraction ${report.provenance.timings.extractionMs} ms · rules ${report.provenance.timings.ruleEngineMs} ms · total ${report.provenance.timings.totalMs} ms</td></tr>
+    <tr><th>Processing</th><td>OCR ${report.provenance.timings.ocrMs} ms · extraction ${report.provenance.timings.extractionMs} ms${
+      typeof report.provenance.timings.llmMs === 'number'
+        ? ` · model ${report.provenance.timings.llmMs} ms`
+        : ''
+    } · rules ${report.provenance.timings.ruleEngineMs} ms · total ${report.provenance.timings.totalMs} ms</td></tr>
     ${
       report.provenance.contextApplied.length > 0
         ? `<tr><th>Inferred about the package</th><td>${report.provenance.contextApplied

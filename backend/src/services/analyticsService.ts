@@ -2,7 +2,6 @@ import mongoose, { type PipelineStage } from 'mongoose';
 
 import { Inspection, User } from '../models';
 import {
-  isPendingReviewExpr,
   statusFilter,
   type InspectionStatus,
   type ProductCategory,
@@ -67,12 +66,10 @@ export interface DashboardSummary {
   totalInspections: number;
   compliant: number;
   violations: number;
-  pendingReviews: number;
   finalized: number;
   drafts: number;
   /** Percentage of *assessed* inspections found compliant, 0–100. */
   complianceRate: number;
-  averageScore: number;
   activeInspectors: number;
   totalViolationFindings: number;
 }
@@ -91,13 +88,9 @@ export async function getSummary(scope: AnalyticsScope): Promise<DashboardSummar
     totalInspections: number;
     compliant: number;
     violations: number;
-    reviewRequired: number;
-    pendingReviews: number;
     finalized: number;
     drafts: number;
     assessed: number;
-    scoreSum: number;
-    scoreCount: number;
     violationFindings: number;
   }>([
     { $match: match },
@@ -111,15 +104,9 @@ export async function getSummary(scope: AnalyticsScope): Promise<DashboardSummar
         violations: {
           $sum: { $cond: [{ $eq: ['$complianceResult.status', 'VIOLATION_DETECTED'] }, 1, 0] },
         },
-        reviewRequired: {
-          $sum: { $cond: [{ $eq: ['$complianceResult.status', 'REVIEW_REQUIRED'] }, 1, 0] },
-        },
-        pendingReviews: { $sum: { $cond: [isPendingReviewExpr(), 1, 0] } },
         finalized: { $sum: { $cond: [{ $eq: ['$status', 'FINALIZED'] }, 1, 0] } },
         drafts: { $sum: { $cond: [{ $eq: ['$status', 'DRAFT'] }, 1, 0] } },
         assessed: { $sum: { $cond: [{ $ifNull: ['$complianceResult.status', false] }, 1, 0] } },
-        scoreSum: { $sum: { $ifNull: ['$complianceResult.score', 0] } },
-        scoreCount: { $sum: { $cond: [{ $ifNull: ['$complianceResult.score', false] }, 1, 0] } },
         violationFindings: {
           $sum: { $size: { $ifNull: ['$complianceResult.violations', []] } },
         },
@@ -135,14 +122,9 @@ export async function getSummary(scope: AnalyticsScope): Promise<DashboardSummar
     totalInspections: aggregate?.totalInspections ?? 0,
     compliant: aggregate?.compliant ?? 0,
     violations: aggregate?.violations ?? 0,
-    pendingReviews: aggregate?.pendingReviews ?? 0,
     finalized: aggregate?.finalized ?? 0,
     drafts: aggregate?.drafts ?? 0,
     complianceRate: assessed > 0 ? Math.round(((aggregate?.compliant ?? 0) / assessed) * 100) : 0,
-    averageScore:
-      aggregate && aggregate.scoreCount > 0
-        ? Math.round(aggregate.scoreSum / aggregate.scoreCount)
-        : 0,
     activeInspectors,
     totalViolationFindings: aggregate?.violationFindings ?? 0,
   };
@@ -153,7 +135,6 @@ export interface TrendPoint {
   total: number;
   compliant: number;
   violations: number;
-  reviewRequired: number;
 }
 
 /**
@@ -207,7 +188,6 @@ export async function getTrend(scope: AnalyticsScope, days = 30): Promise<TrendP
     total: number;
     compliant: number;
     violations: number;
-    reviewRequired: number;
   }>([
     { $match: { ...scopeMatch(scope), createdAt: { $gte: from, $lte: to } } },
     {
@@ -219,9 +199,6 @@ export async function getTrend(scope: AnalyticsScope, days = 30): Promise<TrendP
         },
         violations: {
           $sum: { $cond: [{ $eq: ['$complianceResult.status', 'VIOLATION_DETECTED'] }, 1, 0] },
-        },
-        reviewRequired: {
-          $sum: { $cond: [{ $eq: ['$complianceResult.status', 'REVIEW_REQUIRED'] }, 1, 0] },
         },
       },
     },
@@ -241,7 +218,6 @@ export async function getTrend(scope: AnalyticsScope, days = 30): Promise<TrendP
       total: row?.total ?? 0,
       compliant: row?.compliant ?? 0,
       violations: row?.violations ?? 0,
-      reviewRequired: row?.reviewRequired ?? 0,
     });
     cursor.setDate(cursor.getDate() + 1);
   }
@@ -254,7 +230,7 @@ export interface DistributionSlice {
   count: number;
 }
 
-/** Compliant / violation / review-required split, for the donut. */
+/** Compliant / violation split, for the donut. */
 export async function getComplianceDistribution(
   scope: AnalyticsScope,
 ): Promise<DistributionSlice[]> {
@@ -265,7 +241,7 @@ export async function getComplianceDistribution(
 
   const counts = new Map(rows.map((row) => [row._id ?? 'NOT_ASSESSED', row.count]));
 
-  return ['COMPLIANT', 'VIOLATION_DETECTED', 'REVIEW_REQUIRED', 'NOT_ASSESSED'].map((status) => ({
+  return ['COMPLIANT', 'VIOLATION_DETECTED', 'NOT_ASSESSED'].map((status) => ({
     status,
     count: counts.get(status) ?? 0,
   }));
@@ -360,7 +336,6 @@ export interface InspectorActivityRow {
   totalInspections: number;
   compliant: number;
   violations: number;
-  pendingReviews: number;
   complianceRate: number;
   lastActivityAt?: string;
 }
@@ -386,7 +361,6 @@ export async function getInspectorActivity(
     totalInspections: number;
     compliant: number;
     violations: number;
-    pendingReviews: number;
     lastActivityAt?: Date;
   }>([
     { $match: { role: 'INSPECTOR' } },
@@ -408,9 +382,6 @@ export async function getInspectorActivity(
                   $cond: [{ $eq: ['$complianceResult.status', 'VIOLATION_DETECTED'] }, 1, 0],
                 },
               },
-              pendingReviews: {
-                $sum: { $cond: [{ $eq: ['$status', 'REVIEW_REQUIRED'] }, 1, 0] },
-              },
               lastActivityAt: { $max: '$createdAt' },
             },
           },
@@ -428,7 +399,6 @@ export async function getInspectorActivity(
         totalInspections: { $ifNull: ['$agg.totalInspections', 0] },
         compliant: { $ifNull: ['$agg.compliant', 0] },
         violations: { $ifNull: ['$agg.violations', 0] },
-        pendingReviews: { $ifNull: ['$agg.pendingReviews', 0] },
         lastActivityAt: '$agg.lastActivityAt',
       },
     },
@@ -446,7 +416,6 @@ export async function getInspectorActivity(
       totalInspections: row.totalInspections,
       compliant: row.compliant,
       violations: row.violations,
-      pendingReviews: row.pendingReviews,
       complianceRate: assessed > 0 ? Math.round((row.compliant / assessed) * 100) : 0,
       lastActivityAt: row.lastActivityAt?.toISOString(),
     };

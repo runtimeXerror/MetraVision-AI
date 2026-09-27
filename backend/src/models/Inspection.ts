@@ -1,5 +1,6 @@
 import { Schema, model, type HydratedDocument, type Model, type Types } from 'mongoose';
 
+
 import {
   ANALYSIS_ENGINES,
   CHECK_RESULTS,
@@ -127,7 +128,6 @@ export interface InspectionAttrs {
   };
   complianceResult?: {
     status: ComplianceStatus;
-    score: number;
     checks: ComplianceCheckAttrs[];
     violations: ViolationAttrs[];
     warnings: string[];
@@ -214,6 +214,15 @@ export interface ScanRecordAttrs {
     warnings: string[];
     /** Declarations the package says are printed on its carton or crimp. */
     declaredElsewhere?: string[];
+    /**
+     * What a language model made of the same text, when one was asked.
+     *
+     * Stored because it is provenance: a value an inspector accepted from a
+     * model, and a value the camera read off a printed label, are different
+     * evidence, and a report regenerated later has to be able to say which
+     * this was. Absent when `LLM_PROVIDER` is `none`.
+     */
+    llm?: Record<string, unknown>;
   };
   legal: {
     status: string;
@@ -230,7 +239,6 @@ export interface ScanRecordAttrs {
     warnings: unknown[];
     issues: unknown[];
     issueSummary: Record<string, unknown>;
-    thresholds: Record<string, unknown>;
     ruleSetVersion: string;
     ruleSetChecksum: string;
     engineVersion: string;
@@ -417,7 +425,6 @@ const inspectionSchema = new Schema<InspectionAttrs, InspectionModel, Inspection
       type: new Schema(
         {
           status: { type: String, enum: COMPLIANCE_STATUSES, required: true },
-          score: { type: Number, required: true, min: 0, max: 100 },
           checks: { type: [checkSchema], default: [] },
           violations: { type: [violationSchema], default: [] },
           warnings: { type: [String], default: [] },
@@ -483,8 +490,9 @@ inspectionSchema.methods.toDTO = function toDTO(): InspectionDTO {
 
   const populated = typeof inspector === 'object' && 'name' in inspector ? inspector : null;
 
-  const pendingFieldCount = this.extractedFields.filter((field) => !field.reviewAction).length;
-  const completedFieldCount = this.extractedFields.length - pendingFieldCount;
+  // Declarations the inspector has ruled on. There is no pending count: nothing
+  // is queued for review, and the inspector corrects what they choose to.
+  const completedFieldCount = this.extractedFields.filter((field) => field.reviewAction !== undefined).length;
 
   return {
     id: this.id as string,
@@ -559,7 +567,6 @@ inspectionSchema.methods.toDTO = function toDTO(): InspectionDTO {
     complianceResult: this.complianceResult
       ? {
           status: this.complianceResult.status,
-          score: this.complianceResult.score,
           // Fields are copied explicitly rather than spread: these are Mongoose
           // subdocuments, and `{ ...subdoc }` yields internal state instead of
           // the schema paths.
@@ -613,7 +620,6 @@ inspectionSchema.methods.toDTO = function toDTO(): InspectionDTO {
       : undefined,
     review: {
       completedFieldCount,
-      pendingFieldCount,
       lastReviewedAt: this.lastReviewedAt?.toISOString(),
     },
     // Omitted entirely where there are none, so the common case does not carry

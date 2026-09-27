@@ -237,26 +237,36 @@ const CATEGORY_OUT: Record<ProductCategory, string> = {
 const COMPLIANCE_IN: Record<string, ComplianceStatus> = {
   COMPLIANT: 'compliant',
   VIOLATION_DETECTED: 'violation',
-  REVIEW_REQUIRED: 'review_required',
 };
 
 const COMPLIANCE_OUT: Record<ComplianceStatus, string> = {
   compliant: 'COMPLIANT',
   violation: 'VIOLATION_DETECTED',
-  review_required: 'REVIEW_REQUIRED',
 };
+
+/**
+ * The verdict on a compliance result.
+ *
+ * A record written under the older engine can still say `REVIEW_REQUIRED`
+ * until the server has re-evaluated it on boot. Rather than show a state the
+ * app no longer has words for, it is settled the way the server settles it: a
+ * violation on file makes it non-compliant, otherwise it is compliant.
+ */
+function verdictOf(result: { status: string; violations: unknown[] }): ComplianceStatus {
+  return COMPLIANCE_IN[result.status] ?? (result.violations.length > 0 ? 'violation' : 'compliant');
+}
 
 /**
  * The backend's status enum folds workflow position and verdict together.
  * The mobile app keeps them apart, so a verdict-bearing status collapses to
- * `pending_review` here and the verdict is read off `complianceResult`.
+ * `analysed` here and the verdict is read off `complianceResult`.
  */
 const STATUS_IN: Record<string, InspectionStatus> = {
   DRAFT: 'draft',
   PROCESSING: 'analysing',
-  REVIEW_REQUIRED: 'pending_review',
-  COMPLIANT: 'pending_review',
-  VIOLATION_DETECTED: 'pending_review',
+  REVIEW_REQUIRED: 'analysed',
+  COMPLIANT: 'analysed',
+  VIOLATION_DETECTED: 'analysed',
   FINALIZED: 'finalized',
 };
 
@@ -289,7 +299,6 @@ const REVIEW_OUT: Record<ReviewAction, string> = {
 const CHECK_IN: Record<string, CheckResult> = {
   PASS: 'pass',
   FAIL: 'fail',
-  WARNING: 'warning',
   NOT_APPLICABLE: 'not_applicable',
 };
 
@@ -328,7 +337,7 @@ export const toCategory = (value?: string | null): ProductCategory =>
   (value ? CATEGORY_IN[value] : undefined) ?? 'other';
 
 export const toComplianceStatus = (value?: string | null): ComplianceStatus =>
-  (value ? COMPLIANCE_IN[value] : undefined) ?? 'review_required';
+  (value ? COMPLIANCE_IN[value] : undefined) ?? 'compliant';
 
 export const toSeverity = (value?: string | null): Severity =>
   (value ? SEVERITY_IN[value] : undefined) ?? 'minor';
@@ -454,7 +463,7 @@ function toComplianceResult(
   }));
 
   return {
-    status: COMPLIANCE_IN[dto.status] ?? 'review_required',
+    status: verdictOf(dto),
     score: dto.score,
     checks,
     violations,
@@ -488,15 +497,7 @@ export function toAnalysis(dto: InspectionDTO): AIAnalysis | undefined {
 const LEGAL_STATUS_IN: Record<string, LegalStatus> = {
   COMPLIANT: 'compliant',
   VIOLATION_DETECTED: 'violation_detected',
-  REVIEW_REQUIRED: 'review_required',
   NOT_APPLICABLE: 'not_applicable',
-  INSUFFICIENT_EVIDENCE: 'insufficient_evidence',
-};
-
-const CLASSIFICATION_IN: Record<string, IssueClassification> = {
-  POTENTIAL_VIOLATION: 'potential_violation',
-  REVIEW: 'review',
-  INFO: 'info',
 };
 
 /**
@@ -512,23 +513,26 @@ export function toScanRecord(dto: InspectionDTO): ScanRecord | undefined {
 
   const { legal } = dto.scan;
 
+  // The engine only raises an issue for a failed check, so every issue is a
+  // potential violation whatever an older record spelled it as.
   const issues: ComplianceIssue[] = (legal.issues as ComplianceIssue[]).map((issue) => ({
     ...issue,
-    classification:
-      CLASSIFICATION_IN[issue.classification as unknown as string] ?? 'review',
+    classification: 'potential_violation',
   }));
+
+  const violations = legal.summary.violations ?? 0;
 
   return {
     ocr: dto.scan.ocr,
     extraction: dto.scan.extraction,
-    status: LEGAL_STATUS_IN[legal.status] ?? 'review_required',
+    // Settled the same way `verdictOf` settles the projection, for a record
+    // the server has not yet moved off the retired review state.
+    status: LEGAL_STATUS_IN[legal.status] ?? (violations > 0 ? 'violation_detected' : 'compliant'),
     summary: {
       totalChecks: legal.summary.totalChecks ?? 0,
       compliant: legal.summary.compliant ?? 0,
-      violations: legal.summary.violations ?? 0,
-      reviewRequired: legal.summary.reviewRequired ?? 0,
+      violations,
       notApplicable: legal.summary.notApplicable ?? 0,
-      insufficientEvidence: legal.summary.insufficientEvidence ?? 0,
       pendingCapability: legal.summary.pendingCapability ?? 0,
     },
     issues,
@@ -582,9 +586,7 @@ export function toInspection(dto: InspectionDTO): Inspection {
     analysis: toAnalysis(dto),
     scan: toScanRecord(dto),
     status: STATUS_IN[dto.status] ?? 'draft',
-    complianceStatus: dto.complianceResult
-      ? (COMPLIANCE_IN[dto.complianceResult.status] ?? 'review_required')
-      : undefined,
+    complianceStatus: dto.complianceResult ? verdictOf(dto.complianceResult) : undefined,
     finalNotes: dto.finalNotes,
     createdAt: dto.createdAt,
     updatedAt: dto.updatedAt,
@@ -598,13 +600,10 @@ export function toInspectionSummary(dto: InspectionDTO): InspectionSummary {
     referenceId: dto.inspectionId,
     businessName: dto.business.name,
     productLabel: dto.productName ?? 'Packaged Product',
-    complianceStatus: dto.complianceResult
-      ? (COMPLIANCE_IN[dto.complianceResult.status] ?? 'review_required')
-      : 'review_required',
+    complianceStatus: dto.complianceResult ? verdictOf(dto.complianceResult) : undefined,
     status: STATUS_IN[dto.status] ?? 'draft',
     imageCount: dto.images.length,
     violationCount: dto.complianceResult?.violations.length ?? 0,
-    pendingDeclarations: dto.review?.pendingFieldCount ?? 0,
     createdAt: dto.createdAt,
   };
 }

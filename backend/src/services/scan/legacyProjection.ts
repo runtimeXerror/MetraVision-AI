@@ -30,24 +30,20 @@ import type { ComplianceIssue } from './issueGenerator';
  */
 
 /**
- * The engine has five states; the existing schema has three.
+ * The verdict, in the schema's vocabulary.
  *
- * Everything that is not a clean pass and not a finding becomes
- * REVIEW_REQUIRED, which is the honest collapse: `INSUFFICIENT_EVIDENCE` and
- * `NOT_APPLICABLE` both mean "a person still has to look", and neither may be
- * shown to a supervisor as a pass.
+ * A package no rule reached — every rule out of scope or exempt — is not a
+ * violation, and it is recorded as compliant with nothing checked rather than
+ * in a third state the app no longer shows.
  */
 export function toLegacyStatus(status: ComplianceResult['status']): ComplianceStatus {
   if (status === 'VIOLATION_DETECTED') return 'VIOLATION_DETECTED';
-  if (status === 'COMPLIANT') return 'COMPLIANT';
-  return 'REVIEW_REQUIRED';
+  return 'COMPLIANT';
 }
 
 const RESULT_BY_STATUS: Record<ComplianceCheck['status'], CheckResult> = {
   COMPLIANT: 'PASS',
   VIOLATION_DETECTED: 'FAIL',
-  REVIEW_REQUIRED: 'WARNING',
-  INSUFFICIENT_EVIDENCE: 'WARNING',
   NOT_APPLICABLE: 'NOT_APPLICABLE',
 };
 
@@ -63,60 +59,12 @@ const CATEGORY_BY_FIELD: Record<string, ViolationCategory> = {
   best_before: 'TRACEABILITY',
 };
 
-const ABSENCE_REASONS = new Set([
-  'DECLARATION_ABSENT',
-  'DECLARATION_ABSENT_LOW_CONFIDENCE',
-  'CROSS_FIELD_INCOMPLETE',
-]);
-
-const READABILITY_REASONS = new Set([
-  'DECLARATION_UNREADABLE',
-  'CAPTURE_INCOMPLETE',
-  'NO_EVIDENCE_SUPPLIED',
-]);
+const ABSENCE_REASONS = new Set(['DECLARATION_ABSENT', 'CROSS_FIELD_INCOMPLETE']);
 
 function categoryFor(check: ComplianceCheck): ViolationCategory {
   if (ABSENCE_REASONS.has(check.reasonCode)) return 'MISSING_DECLARATION';
-  if (READABILITY_REASONS.has(check.reasonCode)) return 'READABILITY';
-  /**
-   * A check waiting on a measurement is a readability question, not a
-   * placement one.
-   *
-   * This used to say `PLACEMENT`, and it was simply wrong: the only checks
-   * that reach here are the two Rule 7 font-size ones, which the corpus itself
-   * categorises as TYPOGRAPHY. An inspector reading the summary saw "Placement"
-   * against a package whose declarations were on the right face, and nothing on
-   * the screen explained why — the word described neither the rule nor the
-   * problem.
-   *
-   * `READABILITY` is the honest label and the one a person understands without
-   * being taught the vocabulary: the question really is whether the print is
-   * big enough to read. `PLACEMENT` stays in the enum — it is a real legal
-   * category and old records may carry it — but nothing produces it now, and
-   * nothing should until a rule actually validates which face a declaration is
-   * on.
-   */
-  if (check.reasonCode === 'MEASUREMENT_NOT_AVAILABLE') return 'READABILITY';
+  if (check.reasonCode === 'DECLARATION_UNREADABLE') return 'READABILITY';
   return (check.field ? CATEGORY_BY_FIELD[check.field] : undefined) ?? 'INCORRECT_DECLARATION';
-}
-
-/**
- * A 0–100 score, over the checks that were actually decided.
- *
- * Checks the engine could not assess — those waiting on a measurement no part
- * of this system takes — are excluded from both halves of the fraction. Leaving
- * them in would drag every package toward the same score and make the number
- * describe the roadmap rather than the label.
- */
-export function scoreFor(result: ComplianceResult): number {
-  const decisive = result.checks.filter(
-    (check) => check.status !== 'NOT_APPLICABLE' && check.reasonCode !== 'MEASUREMENT_NOT_AVAILABLE',
-  );
-
-  if (decisive.length === 0) return 0;
-
-  const passed = decisive.filter((check) => check.status === 'COMPLIANT').length;
-  return Math.round((passed / decisive.length) * 100);
 }
 
 /**
@@ -184,33 +132,25 @@ export function toLegacyChecks(result: ComplianceResult): ComplianceCheckAttrs[]
   }));
 }
 
-/**
- * Violations, for the dashboard's violations register.
- *
- * Only `POTENTIAL_VIOLATION` issues cross over. A review is not a violation,
- * and a register that mixes the two would report the camera's uncertainty as
- * enforcement activity.
- */
+/** Violations, for the dashboard's violations register. */
 export function toLegacyViolations(issues: ComplianceIssue[]): ViolationAttrs[] {
-  return issues
-    .filter((issue) => issue.classification === 'POTENTIAL_VIOLATION')
-    .map((issue) => ({
-      code: `${issue.ruleId}@${issue.ruleVersion}`,
-      title: issue.title,
-      ruleReference: `${issue.source.clause ?? issue.source.rule} — ${issue.source.notification}`,
-      category:
-        (issue.field ? CATEGORY_BY_FIELD[issue.field] : undefined) ??
-        (issue.reasonCode.startsWith('DECLARATION_ABSENT') ? 'MISSING_DECLARATION' : 'INCORRECT_DECLARATION'),
-      severity: issue.severity,
-      description: issue.description,
-      expected: issue.expectedRequirement,
-      observed: issue.observedValue,
-      // The corpus's own words about what the provision requires. No advice is
-      // written here that the rule set did not supply.
-      recommendation: `Confirm against the package and, if the declaration is genuinely absent or non-conforming, proceed under ${issue.source.clause ?? issue.source.rule} (${issue.source.notification}).`,
-      bbox: issue.evidence[0]?.bbox ? [...issue.evidence[0].bbox] : undefined,
-      sourceImageId: issue.evidence[0]?.imageId,
-    }));
+  return issues.map((issue) => ({
+    code: `${issue.ruleId}@${issue.ruleVersion}`,
+    title: issue.title,
+    ruleReference: `${issue.source.clause ?? issue.source.rule} — ${issue.source.notification}`,
+    category:
+      (issue.field ? CATEGORY_BY_FIELD[issue.field] : undefined) ??
+      (issue.reasonCode.startsWith('DECLARATION_ABSENT') ? 'MISSING_DECLARATION' : 'INCORRECT_DECLARATION'),
+    severity: issue.severity,
+    description: issue.description,
+    expected: issue.expectedRequirement,
+    observed: issue.observedValue,
+    // The corpus's own words about what the provision requires. No advice is
+    // written here that the rule set did not supply.
+    recommendation: `Confirm against the package and, if the declaration is genuinely absent or non-conforming, proceed under ${issue.source.clause ?? issue.source.rule} (${issue.source.notification}).`,
+    bbox: issue.evidence[0]?.bbox ? [...issue.evidence[0].bbox] : undefined,
+    sourceImageId: issue.evidence[0]?.imageId,
+  }));
 }
 
 /**
@@ -278,7 +218,36 @@ export function toLegacyFields(
 
   const records = [...Object.values(extraction.fields), ...Object.values(extraction.informational)];
 
-  return records.map((record) => ({
+  /**
+   * ── DECLARATIONS THIS COMMODITY IS ACTUALLY ASKED FOR ───────────────────
+   *
+   * The extractor looks for every declaration it knows how to look for, which
+   * is the right thing for it to do — it is told nothing about the law, and a
+   * value it finds is worth recording whatever the commodity. Which of them a
+   * *package* has to carry is the rule engine's question, and it answers it:
+   * `assessed` is the set of declarations some applicable rule asked about.
+   *
+   * This projection was ignoring that answer and writing all seventeen onto
+   * every inspection. A 100 ml face cleanser therefore came back declaring it
+   * had no Vegetarian / non-vegetarian mark, no genetically modified
+   * declaration and no dimensions — three rows of "Not declared" on a document
+   * served on a dealer, for three declarations that no rule asks of a
+   * cosmetic and that it would be odd to find on one.
+   *
+   * Worse than untidy: every one of them carried a confidence of zero, which
+   * put it under the review threshold, so the inspector's review queue filled
+   * with declarations nobody was ever going to check.
+   *
+   * A record survives if a rule asked about it, or if the package carries a
+   * value for it — the second because country of origin on a domestic pack,
+   * and an ingredient list on a cosmetic, are worth reporting even where no
+   * rule in this set turns on them.
+   */
+  const asked = records.filter(
+    (record) => assessed.has(record.field) || record.value !== null,
+  );
+
+  return asked.map((record) => ({
     name: record.field,
     label: record.label,
     aiValue: record.value,

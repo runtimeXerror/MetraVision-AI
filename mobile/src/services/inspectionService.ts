@@ -231,16 +231,14 @@ export async function getStats(): Promise<ReportStats> {
     totalInspections: number;
     compliant: number;
     violations: number;
-    pendingReviews: number;
     finalized: number;
-    averageScore: number;
+    averageScore?: number;
   }>('/inspections/stats');
 
   return {
     totalInspections: stats.totalInspections,
     compliant: stats.compliant,
     violations: stats.violations,
-    pendingReviews: stats.pendingReviews,
-    averageScore: stats.averageScore,
+    averageScore: stats.averageScore ?? 0,
   };
 }

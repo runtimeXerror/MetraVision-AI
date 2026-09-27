@@ -11,7 +11,6 @@ export { buildReport, renderReportHtml, REPORT_DISCLAIMER, REPORT_VERSION } from
 export type { ComplianceReport, ReportInput } from './reportGenerator';
 
 export {
-  scoreFor,
   toLegacyChecks,
   toLegacyFields,
   toLegacyStatus,
